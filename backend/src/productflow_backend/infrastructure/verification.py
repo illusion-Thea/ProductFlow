@@ -133,29 +133,54 @@ def install_network_guard() -> None:
     socket._m101_guard_installed = True
 
 
+def validate_native_connection(values: dict[str, Any]) -> None:
+    data = manifest()
+    # libpq gives hostaddr precedence over host and can load it from a service.
+    # This runner needs neither mechanism; reject both, including env defaults.
+    if any(values.get(key) for key in ("hostaddr", "service")) or any(
+        os.environ.get(key) for key in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")
+    ):
+        raise IsolationError("native_database_address_override_not_allowed")
+    if (
+        os.environ.get("M101_PROCESS_MODE") == "unit"
+        or values.get("host") != "127.0.0.1"
+        or str(values.get("port", "")) != str(data["ports"]["postgres"])
+        or values.get("dbname") not in data["databases"]
+        or values.get("user") != data["database_role"]
+    ):
+        raise IsolationError("native_database_connection_not_registered")
+
+
+def require_verified_process() -> None:
+    """Run before business imports, including when sitecustomize was omitted."""
+    manifest()
+    if os.environ.get("M101_PROCESS_MODE") != "integration":
+        raise IsolationError("background_process_requires_integration_mode")
+    install_network_guard()
+    install_database_guard()
+    from productflow_backend.config import get_settings
+
+    validate_settings(get_settings())
+
+
 def install_database_guard() -> None:
     # libpq performs sockets in C, so Python's socket guard is insufficient.
     import psycopg
     from sqlalchemy import event
     from sqlalchemy.engine import Engine
 
+    if getattr(psycopg.connect, "_m101_guard_installed", False):
+        return
     original_connect = psycopg.connect
 
     def guarded_psycopg_connect(conninfo: str = "", **kwargs: Any) -> Any:
         from psycopg.conninfo import conninfo_to_dict
 
         values = conninfo_to_dict(conninfo, **kwargs)
-        data = manifest()
-        if (
-            os.environ.get("M101_PROCESS_MODE") == "unit"
-            or values.get("host") != "127.0.0.1"
-            or int(values.get("port", 0)) != data["ports"]["postgres"]
-            or values.get("dbname") not in data["databases"]
-            or values.get("user") != data["database_role"]
-        ):
-            raise IsolationError("native_database_connection_not_registered")
+        validate_native_connection(values)
         return original_connect(conninfo, **kwargs)
 
+    guarded_psycopg_connect._m101_guard_installed = True
     psycopg.connect = guarded_psycopg_connect
 
     @event.listens_for(Engine, "do_connect")
@@ -167,12 +192,8 @@ def install_database_guard() -> None:
             if path not in {"", ":memory:"}:
                 inside_run(path)
             return
-        data = manifest()
-        if dialect.name != "postgresql" or kwargs.get("host") != "127.0.0.1":
+        if dialect.name != "postgresql":
             raise IsolationError("database_driver_or_host_not_allowed")
-        if int(kwargs.get("port", 0)) != data["ports"]["postgres"]:
-            raise IsolationError("database_port_not_allowed")
-        if kwargs.get("dbname") not in data["databases"] or kwargs.get("user") != data["database_role"]:
-            raise IsolationError("database_identity_not_registered")
-        if os.environ.get("M101_PROCESS_MODE") == "unit":
-            raise IsolationError("unit_tests_cannot_connect_postgres")
+        from psycopg.conninfo import conninfo_to_dict
+
+        validate_native_connection(conninfo_to_dict(args[0] if args else "", **kwargs))

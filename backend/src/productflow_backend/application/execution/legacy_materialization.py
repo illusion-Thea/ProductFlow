@@ -165,10 +165,15 @@ def project_legacy(session, operation: ExecutionOperation) -> None:
     attempt = session.scalar(select(ExecutionAttempt).where(ExecutionAttempt.operation_id == operation.id))
     stages = list(session.scalars(select(ExecutionStage).where(ExecutionStage.attempt_id == attempt.id)))
     states = {stage.state for stage in stages}
-    if "unknown" in states:
+    from productflow_backend.infrastructure.db.execution_models import ModelCall
+
+    calls = list(session.scalars(select(ModelCall).join(ExecutionStage).where(ExecutionStage.attempt_id == attempt.id)))
+    if any(call.outcome == "unknown" and call.wait_closed_at is None for call in calls):
         state = "unknown"
     elif states & {"queued", "claimed", "dispatch_intent", "running"}:
         state = "running"
+    elif "unknown" in states or any(call.wait_abandoned_at for call in calls):
+        state = "unknown"
     elif "dispatch_blocked" in states:
         state = "failed" if operation.state != "awaiting_local_decision" else "running"
     elif "failed" in states:
@@ -177,9 +182,7 @@ def project_legacy(session, operation: ExecutionOperation) -> None:
         state = "succeeded"
     else:
         state = "cancelled"
-    if operation.wait_closed_at and attempt.initial_outcome == "unknown":
-        state = "unknown"
-    elif cancelled(session, operation) and state not in {"unknown", "running"}:
+    if cancelled(session, operation) and state not in {"unknown", "running"}:
         state = "cancelled"
     if operation.state != "awaiting_local_decision":
         operation.state = state

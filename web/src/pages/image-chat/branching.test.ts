@@ -131,6 +131,13 @@ function status(overrides: Partial<ImageSessionStatus>): ImageSessionStatus {
 }
 
 describe("image chat branching helpers", () => {
+  it("continues polling an unresolved unknown and stops only after explicit closure", () => {
+    const unknown = task({ status: "unknown", execution: { operation_id: "op", attempt_id: "a", row_version: 1,
+      root_row_version: 1, source_kind: "image_session", source_id: "s", state: "unknown", wait_closed_at: null,
+      status_url: "/status", action_url: "/action", retry_url: "/retry", current_recovery: null } });
+    expect(isImageSessionGenerationTaskActive(unknown)).toBe(true);
+    expect(isImageSessionGenerationTaskActive({ ...unknown, execution: { ...unknown.execution!, wait_closed_at: createdAt } })).toBe(false);
+  });
   it("groups multi-candidate rounds by generation group and sorts candidates", () => {
     const groups = groupImageSessionRounds([
       round({ id: "r1", generation_group_id: "g1", candidate_index: 2, generated_asset: asset("a2") }),

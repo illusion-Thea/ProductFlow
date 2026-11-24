@@ -36,6 +36,10 @@ class SyntheticTransport:
                             environment_id=data["environment_id"])
         if scenario == "pause_before_send":
             self.pause(data, permit, "before-send")
+        from productflow_backend.application.execution.dispatch import transport_permit_is_current
+
+        if not transport_permit_is_current(permit):
+            raise UnknownProviderOutcome("dispatch_permit_expired_or_revoked")
         # This independent transport journal is written at the actual invocation,
         # not inferred from ModelCall rows or reserved quota.
         journal = inside_run(Path(data["run_root"]) / "evidence/stub-requests.jsonl")

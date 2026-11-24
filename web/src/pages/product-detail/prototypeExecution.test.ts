@@ -25,6 +25,15 @@ describe("prototype status and human preview", () => {
     expect(prototypeNeedsPolling({ ...task, operations: [{ ...unknown, wait_closed_at: "2026-11-23T00:00:00Z" }] })).toBe(false);
     expect(prototypeNeedsPolling({ ...task, business_state: "cancelling" })).toBe(true);
   });
+  it("merges lightweight changes without dropping historical operations or draft content", () => {
+    const historic = { ...unknown, operation_id: "old", state: "failed" as const };
+    const current = { ...unknown, row_version: 3, state: "running" as const };
+    const merged = mergePrototypeStatus({ ...task, operations: [historic, unknown] }, {
+      ...task, status_version: 4, operations_partial: true, operations: [current],
+    });
+    expect(merged.operations).toEqual([historic, current]);
+    expect(merged.draft).toBe(task.draft);
+  });
   it("previews actual copy, independent of UI locale or its summary", () => {
     expect(CONTENT_LANGUAGES).toEqual(["zh-CN", "ms-MY", "id-ID", "fil-PH"]);
     expect(previewCopyText({ version: 2, summary: "summary", content: { kind: "freeform", text: "完整已确认文案" } })).toBe("完整已确认文案");

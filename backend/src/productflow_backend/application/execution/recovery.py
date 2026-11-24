@@ -37,14 +37,18 @@ def act_on_operation(session, operation_id: str, action: str, payload: dict, act
     if action == "close-wait":
         if operation.state != "unknown":
             raise ExecutionConflict("only_unknown_wait_can_be_closed")
-        operation.wait_closed_at = operation.wait_closed_at or utcnow()
-        calls = session.scalars(select(ModelCall).join(ExecutionStage).where(ExecutionStage.attempt_id == attempt.id))
+        operation.wait_closed_at = utcnow()
+        calls = session.scalars(select(ModelCall).join(ExecutionStage).where(
+            ExecutionStage.attempt_id == attempt.id, ModelCall.outcome == "unknown", ModelCall.wait_closed_at.is_(None),
+        ))
         for call in calls:
-            call.wait_closed_at = call.wait_closed_at or operation.wait_closed_at
+            call.wait_closed_at = call.wait_abandoned_at = operation.wait_closed_at
+            append_event(session, "request_wait_closed", f"close-wait-call:{call.id}", operation_id=operation.id,
+                         payload={"call_id": call.id}, actor_label=actor)
         append_event(
             session,
             "unknown_wait_closed",
-            f"close-wait:{operation.id}",
+            f"close-wait:{operation.id}:{operation.row_version}",
             operation_id=operation.id,
             payload={"reason": payload.get("reason", "")},
             actor_label=actor,
@@ -60,7 +64,11 @@ def act_on_operation(session, operation_id: str, action: str, payload: dict, act
         )
         if operation.item_id and session.scalar(
             select(ExecutionOperation.id).where(
-                ExecutionOperation.item_id == operation.item_id, ExecutionOperation.state.in_(["queued", "running"])
+                ExecutionOperation.item_id == operation.item_id,
+                ExecutionOperation.id != operation.id,
+                ExecutionOperation.state.in_(
+                    ["queued", "running", "unknown", "awaiting_local_decision", "dispatch_blocked"]
+                ),
             )
         ):
             raise ExecutionConflict("slot_already_active")
@@ -123,7 +131,9 @@ def act_on_operation(session, operation_id: str, action: str, payload: dict, act
                 select(ExecutionOperation.id).where(
                     ExecutionOperation.item_id == operation.item_id,
                     ExecutionOperation.id != operation.id,
-                    ExecutionOperation.state.in_(["queued", "running"]),
+                    ExecutionOperation.state.in_(
+                        ["queued", "running", "unknown", "awaiting_local_decision", "dispatch_blocked"]
+                    ),
                 )
             ):
                 raise ExecutionConflict("slot_already_active")
@@ -229,7 +239,9 @@ def scan_deadlines(now=None) -> int:
                 .join(ExecutionAttempt, ExecutionAttempt.id == ExecutionStage.attempt_id)
                 .join(ExecutionOperation, ExecutionOperation.id == ExecutionAttempt.operation_id)
                 .where(ExecutionStage.state.in_(["queued", "claimed", "dispatch_intent", "running", "unknown"]))
-                .where(~((ExecutionStage.state == "unknown") & ExecutionOperation.wait_closed_at.is_not(None)))
+                .where(~((ExecutionStage.state == "unknown") & select(ModelCall.id).where(
+                    ModelCall.stage_id == ExecutionStage.id, ModelCall.wait_closed_at.is_not(None),
+                ).exists()))
                 .order_by(ExecutionStage.created_at, ExecutionStage.id)
             )
         )
@@ -263,6 +275,7 @@ def scan_deadlines(now=None) -> int:
             if call:
                 if call.outcome == "pending" and expired(now, call.wait_deadline_at):
                     call.outcome, stage.state, operation.state = "unknown", "unknown", "unknown"
+                    operation.wait_closed_at = None
                     attempt.initial_outcome = attempt.initial_outcome or "unknown"
                     attempt.resolved_outcome = "unknown"
                     append_event(session, "dispatch_deadline_unknown", f"deadline:{call.id}", operation_id=operation.id)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import defer
 
 from productflow_backend.domain.errors import NotFoundError
 from productflow_backend.infrastructure.db.execution_models import (
@@ -27,16 +28,19 @@ from productflow_backend.infrastructure.db.prototype_models import (
 )
 
 
-def operation_response(session, operation: ExecutionOperation) -> dict:
-    attempt = session.scalar(select(ExecutionAttempt).where(ExecutionAttempt.operation_id == operation.id))
-    recovery = session.scalar(
-        select(LocalRecoveryExecution)
-        .where(LocalRecoveryExecution.attempt_id == attempt.id)
-        .order_by(LocalRecoveryExecution.created_at.desc(), LocalRecoveryExecution.recovery_sequence.desc())
-        .limit(1)
-    )
+def operation_response(session, operation: ExecutionOperation, *, preloaded: tuple | None = None) -> dict:
+    if preloaded is not None:
+        attempt, recovery, root = preloaded
+    else:
+        attempt = session.scalar(select(ExecutionAttempt).where(ExecutionAttempt.operation_id == operation.id))
+        recovery = session.scalar(
+            select(LocalRecoveryExecution)
+            .where(LocalRecoveryExecution.attempt_id == attempt.id)
+            .order_by(LocalRecoveryExecution.created_at.desc(), LocalRecoveryExecution.recovery_sequence.desc())
+            .limit(1)
+        )
     if operation.prototype_task_id:
-        root = session.get(ProductionTask, operation.prototype_task_id)
+        root = preloaded[2] if preloaded else session.get(ProductionTask, operation.prototype_task_id)
         action_url = f"/api/prototype-operations/{operation.id}"
         retry_url = action_url + "/retry"
     elif operation.image_session_task_id:
@@ -146,13 +150,35 @@ def task_detail(session, identifier: str, *, lightweight: bool = False) -> dict:
         )
     )
     experiment = session.get(ExperimentRun, task.experiment_run_id)
-    operations = list(
-        session.scalars(
-            select(ExecutionOperation)
-            .where(ExecutionOperation.prototype_task_id == task.id)
-            .order_by(ExecutionOperation.created_at)
-        )
+    operation_query = select(ExecutionOperation).where(
+        ExecutionOperation.prototype_task_id == task.id
+    ).options(
+        defer(ExecutionOperation.input_snapshot_json, raiseload=True),
+        defer(ExecutionOperation.authorization_snapshot_json, raiseload=True),
     )
+    if lightweight:
+        latest = select(ExecutionOperation.id, func.row_number().over(
+            partition_by=func.coalesce(ExecutionOperation.item_id, ExecutionOperation.kind),
+            order_by=(ExecutionOperation.created_at.desc(), ExecutionOperation.id.desc()),
+        ).label("rank")).where(ExecutionOperation.prototype_task_id == task.id).subquery()
+        operation_query = operation_query.join(latest, latest.c.id == ExecutionOperation.id).where(or_(
+            latest.c.rank == 1,
+            ExecutionOperation.state.in_(["queued", "running", "awaiting_local_decision"]),
+            (ExecutionOperation.state == "unknown") & ExecutionOperation.wait_closed_at.is_(None),
+        ))
+    operations = list(session.scalars(operation_query.order_by(ExecutionOperation.created_at)))
+    attempts = {row.operation_id: row for row in session.scalars(
+        select(ExecutionAttempt).where(ExecutionAttempt.operation_id.in_([operation.id for operation in operations]))
+    )}
+    latest_recovery = select(LocalRecoveryExecution.id, func.row_number().over(
+        partition_by=LocalRecoveryExecution.attempt_id,
+        order_by=(LocalRecoveryExecution.created_at.desc(), LocalRecoveryExecution.recovery_sequence.desc()),
+    ).label("rank")).where(
+        LocalRecoveryExecution.attempt_id.in_([attempt.id for attempt in attempts.values()])
+    ).subquery()
+    recoveries = {row.attempt_id: row for row in session.scalars(select(LocalRecoveryExecution).join(
+        latest_recovery, latest_recovery.c.id == LocalRecoveryExecution.id,
+    ).where(latest_recovery.c.rank == 1))}
     result = {
         "id": task.id,
         "task_id": task.id,
@@ -169,7 +195,10 @@ def task_detail(session, identifier: str, *, lightweight: bool = False) -> dict:
         "image_limit": experiment.image_limit,
         "image_reserved_count": experiment.image_reserved_count,
         "quota_remaining": experiment.image_limit - experiment.image_reserved_count,
-        "operations": [operation_response(session, operation) for operation in operations],
+        "operations_partial": lightweight,
+        "operations": [operation_response(session, operation, preloaded=(
+            attempts[operation.id], recoveries.get(attempts[operation.id].id), task,
+        )) for operation in operations],
         "slots": [
             {"id": item.id, "slot_index": item.slot_index, "first_attempt_id": item.first_attempt_id} for item in items
         ],

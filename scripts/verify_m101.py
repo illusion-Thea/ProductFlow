@@ -256,9 +256,6 @@ def prepare(data: dict) -> None:
     root = Path(data["run_root"])
     if (root / "private.json").exists():
         offline_preflight(data, require_free=False)
-        if data.get("isolation_preflight_passed"):
-            preflight(data)
-            return
         record = data["processes"].get("postgres")
         if not record:
             raise IsolationError(
@@ -336,6 +333,9 @@ def finish_prepare(data: dict) -> None:
             != root / "pgdata"
         ):
             raise IsolationError("partial_prepare_cluster_directory_mismatch")
+        identity = str(conn.execute("SELECT system_identifier FROM pg_control_system()").fetchone()[0])
+        if data.get("system_identifier") and identity != data["system_identifier"]:
+            raise IsolationError("postgres_cluster_identity_mismatch")
         if not conn.execute(
             "SELECT 1 FROM pg_roles WHERE rolname=%s", (data["database_role"],)
         ).fetchone():
@@ -367,11 +367,7 @@ def finish_prepare(data: dict) -> None:
                     sql.Identifier(database), sql.Literal(data["environment_id"])
                 )
             )
-        data["system_identifier"] = str(
-            conn.execute(
-                "SELECT system_identifier FROM pg_control_system()"
-            ).fetchone()[0]
-        )
+        data["system_identifier"] = identity
     redis_config = root / "redis/redis.conf"
     redis_config.write_text(
         f"bind 127.0.0.1\nport {data['ports']['redis']}\nprotected-mode yes\n"

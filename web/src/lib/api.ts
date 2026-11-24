@@ -1,5 +1,5 @@
 import { normalizeApiErrorDetail } from "./apiErrors";
-import { clearExecutionIntent, executionIntent, readExecutionIntent } from "./executionIntent";
+import { clearExecutionIntent, executionIntent, executionPayloadHash, readExecutionIntent } from "./executionIntent";
 import type { ExecutionAction, ExecutionSummary, PrototypeDraft, PrototypeExperiment, PrototypePlan, PrototypeStatus, PrototypeTask } from "./types";
 import type {
   ApplyWorkflowTemplateGroupInput,
@@ -55,6 +55,12 @@ export class ApiError extends Error {
   }
 }
 
+export class PendingSubmissionError extends ApiError {
+  constructor(readonly originalPayload: unknown, readonly resume: () => Promise<unknown>) {
+    super(409, "submission_unresolved：上次提交尚未确认，请先恢复原提交。当前修改仍保留。");
+  }
+}
+
 function toApiUrl(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) {
     return path;
@@ -89,7 +95,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function controlledWrite<T>(path: string, scope: string, payload: unknown, method = "POST"): Promise<T> {
+async function controlledWrite<T>(path: string, scope: string, payload: unknown, method = "POST", recoveryKey?: string): Promise<T> {
   if (!verificationEnvironment) return request(path, { method, body: JSON.stringify(payload) });
   const identity = await request<{ environment_id: string; stub_only: boolean }>("/api/verification-context");
   if (identity.environment_id !== verificationEnvironment || !identity.stub_only) throw new ApiError(409, "verification_environment_mismatch");
@@ -97,16 +103,26 @@ async function controlledWrite<T>(path: string, scope: string, payload: unknown,
   const [root_kind, root_id, action] = scope.split(":");
   const query = new URLSearchParams({ root_kind, root_id, action });
   const saved = readExecutionIntent(sessionStorage, storageKey);
+  if (recoveryKey && saved?.key !== recoveryKey) throw new ApiError(409, "submission_already_resolved：原提交已处理，请刷新查看结果。");
   if (saved) {
     // After reload, the server version may already have advanced. Reconcile the
     // old intent before comparing new UI state; never create a replacement key.
     const status = await request<{ status: string; response?: T }>(`/api/execution-requests/${saved.key}?${query}`);
     if (status.status === "committed" && status.response !== undefined) {
       clearExecutionIntent(sessionStorage, storageKey, saved.key);
+      if (saved.payloadHash !== await executionPayloadHash(payload)) {
+        throw new ApiError(409, "previous_submission_recovered：上次提交已恢复；当前修改仍保留，请确认后再次提交。");
+      }
       return status.response;
     }
+    if (saved.payloadHash !== await executionPayloadHash(payload)) {
+      if (saved.payload === undefined) throw new ApiError(409, "submission_unresolved：原提交内容不可用，请先恢复原内容再重试。");
+      throw new PendingSubmissionError(saved.payload, () => controlledWrite(path, scope, saved.payload, method, saved.key));
+    }
   }
-  const intent = await executionIntent(sessionStorage, storageKey, payload);
+  // A concurrent reconciliation may clear the store while lookup is in flight.
+  // Keep the captured key; recovery must never mint a replacement submission.
+  const intent = saved ?? await executionIntent(sessionStorage, storageKey, payload);
   try {
     const result = await request<T>(path, { method, body: JSON.stringify(payload), headers: { "Idempotency-Key": intent.key } });
     clearExecutionIntent(sessionStorage, storageKey, intent.key);

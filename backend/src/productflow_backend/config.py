@@ -283,13 +283,17 @@ def get_settings() -> Settings:
     can read any database-stored configuration.
     """
 
+    return _settings_from_environment()
+
+
+def _settings_from_environment(**overrides: str) -> Settings:
     if os.environ.get("M101_MANIFEST"):
         from productflow_backend.infrastructure.verification import validate_settings
 
-        settings = Settings(_env_file=None)
+        settings = Settings(_env_file=None, **overrides)
         validate_settings(settings)
         return settings
-    return Settings()
+    return Settings(**overrides)
 
 
 CONFIG_DEFINITIONS: tuple[ConfigDefinition, ...] = (
@@ -750,7 +754,7 @@ def normalize_config_values(values: Mapping[str, Any]) -> dict[str, str]:
 
 def build_settings_with_overrides(overrides: Mapping[str, str]) -> Settings:
     try:
-        return Settings(**dict(overrides))
+        return _settings_from_environment(**dict(overrides))
     except ValidationError as exc:
         first_error = exc.errors()[0] if exc.errors() else {}
         field = ".".join(str(part) for part in first_error.get("loc", []))

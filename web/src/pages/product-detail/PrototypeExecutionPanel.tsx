@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ExecutionOperationList } from "../../components/ExecutionOperationList";
+import { ExecutionIntentRecovery } from "../../components/ExecutionIntentRecovery";
 import { api } from "../../lib/api";
 import { executionErrorMessage } from "../../lib/executionErrors";
 import { useI18n } from "../../lib/preferences";
@@ -29,6 +30,10 @@ export function PrototypeExecutionPanel({ controller }: { controller: ReturnType
       <p className="text-slate-600 dark:text-slate-300">{t("prototype.scope")}</p>
       {controller.loading && <p role="status">{t("app.loading")}</p>}
       {controller.error && <p role="alert" className="text-red-700 dark:text-red-300">{executionErrorMessage(controller.error, t)}</p>}
+      <ExecutionIntentRecovery error={controller.error} onRecovered={async (result) => {
+        if (!task && result && typeof result === "object" && "id" in result && typeof result.id === "string") controller.selectTask(result.id);
+        mutation.reset(); await controller.refresh();
+      }} />
       <div className="flex flex-wrap items-end gap-3">
         <label className="grid gap-1">{t("prototype.task")}<select className={fieldClass} value={controller.taskId} onChange={(event) => { controller.selectTask(event.target.value); setEdit(null); }}>
           <option value="">{t("prototype.empty")}</option>{controller.tasks.data?.items.map((item) => <option key={item.id} value={item.id}>{item.id.slice(0, 8)}</option>)}
@@ -49,7 +54,8 @@ export function PrototypeExecutionPanel({ controller }: { controller: ReturnType
       {!experiment && <p>{t("prototype.syntheticRequired")}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={buttonClass} disabled={busy || !experiment || closed || Boolean(started)} onClick={() => {
-          if (experiment) void mutation.mutateAsync({ action: task ? "save" : "create", draft, experimentId: experiment.id }).then(() => setEdit(null)).catch(() => undefined);
+          const submittedEdit = edit;
+          if (experiment) void mutation.mutateAsync({ action: task ? "save" : "create", draft, experimentId: experiment.id }).then(() => setEdit((current) => current === submittedEdit ? null : current)).catch(() => undefined);
         }}>{t(task ? "prototype.save" : "prototype.create")}</button>
         {task && <>
           <button type="button" className={buttonClass} disabled={busy || closed || started || Boolean(edit) || task.operations.some((operation) => ["queued", "running"].includes(operation.state))} onClick={() => mutation.mutate({ action: "text" })}>{t("prototype.text")}</button>

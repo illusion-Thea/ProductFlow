@@ -1,4 +1,5 @@
 import { ExecutionHistoryPanel } from "../components/ExecutionHistoryPanel";
+import { ExecutionIntentRecovery } from "../components/ExecutionIntentRecovery";
 import { useExecutionActions } from "../lib/useExecutionActions";
 import { PrototypeExecutionPanel } from "./product-detail/PrototypeExecutionPanel";
 import { usePrototypeExecution } from "./product-detail/usePrototypeExecution";
@@ -2038,6 +2039,10 @@ export function ProductDetailPage() {
       {!topChromeCollapsed ? <TopNav onHome={() => navigate("/products")} breadcrumbs={product.name} /> : null}
 
       <PrototypeExecutionPanel key={prototypeExecution.taskId || "new"} controller={prototypeExecution} />
+      <ExecutionIntentRecovery error={runWorkflowMutation.error ?? cancelWorkflowRunMutation.error ?? retryWorkflowRunMutation.error} onRecovered={async () => {
+        runWorkflowMutation.reset(); cancelWorkflowRunMutation.reset(); retryWorkflowRunMutation.reset();
+        setError(""); await queryClient.invalidateQueries({ queryKey: ["product-workflow", productId] });
+      }} />
       <ExecutionHistoryPanel operations={workflowQuery.data?.runs.flatMap((run) => run.node_runs.flatMap((node) => node.execution ? [node.execution] : [])) ?? []} pending={executionActions.isPending} error={executionActions.error}
         onAction={(operation, action, acknowledge) => executionActions.mutate({ operation, action, acknowledge })} />
       <main className="flex min-h-0 flex-1 flex-col border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#060a12]">

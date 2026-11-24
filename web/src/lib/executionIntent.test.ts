@@ -11,7 +11,7 @@ describe("uncertain execution intent", () => {
     const saved = storage();
     const first = await executionIntent(saved, "run:task:generate", { a: 1, b: "中文" });
     expect(await executionIntent(saved, "run:task:generate", { b: "中文", a: 1 })).toEqual(first);
-    expect(saved.getItem("run:task:generate")).not.toContain("中文");
+    expect(JSON.parse(saved.getItem("run:task:generate")!).payload).toEqual({ a: 1, b: "中文" });
     await expect(executionIntent(saved, "run:task:generate", { a: 2 })).rejects.toThrow("submission_unresolved");
     clearExecutionIntent(saved, "run:task:generate", "other-key");
     expect(saved.getItem("run:task:generate")).not.toBeNull();

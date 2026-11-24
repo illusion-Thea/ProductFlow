@@ -181,6 +181,7 @@ class ModelCall(Base, Record):
     quota_sequence: Mapped[int | None] = mapped_column(Integer)
     wait_deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     wait_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    wait_abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class LocalRecoveryExecution(Base, Record):

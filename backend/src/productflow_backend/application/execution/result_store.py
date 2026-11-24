@@ -69,6 +69,8 @@ def record_failure(stage_id: str, outcome: str, reason: str) -> None:
         call.outcome = outcome
         stage.state = outcome
         operation.state = outcome
+        if outcome == "unknown" and call.wait_abandoned_at is None:
+            operation.wait_closed_at = None
         attempt.initial_outcome = attempt.initial_outcome or outcome
         attempt.resolved_outcome = outcome
         attempt.outcome_reason = reason
@@ -286,7 +288,8 @@ def execute_local(stage_id: str, generation: int) -> None:
         recovery.delivery_attempts += 1
         epoch, recovery_id = stage.claim_epoch, recovery.id
         destination = f"artifacts/{attempt.id}/{stage.id}/1.bin"
-        late = cancelled(session, operation) or operation.wait_closed_at is not None or attempt.terminal_at is not None
+        call_id = call.id if call else None
+        late = cancelled(session, operation) or bool(call and call.wait_abandoned_at) or attempt.terminal_at is not None
         operation_id, attempt_id = operation.id, attempt.id
     # Filesystem work is outside every database transaction.
     width = height = None
@@ -312,7 +315,8 @@ def execute_local(stage_id: str, generation: int) -> None:
     with get_session_factory()() as session, session.begin():
         operation, attempt, stage = lock_stage(session, stage_id)
         recovery = session.get(LocalRecoveryExecution, recovery_id)
-        late = late or cancelled(session, operation) or operation.wait_closed_at is not None
+        call = session.get(ModelCall, call_id) if call_id else None
+        late = late or cancelled(session, operation) or bool(call and call.wait_abandoned_at)
         stale = (
             stage.claim_epoch != epoch
             or recovery.state != "running"

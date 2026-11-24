@@ -86,6 +86,14 @@ def accept_image_session(
     capacity_lock(session)
     locked(session, ImageSession, session_id)
     root = _get_image_session_or_raise(session, session_id)
+    if retry_task:
+        previous_op = session.scalar(
+            select(ExecutionOperation).where(ExecutionOperation.image_session_task_id == retry_task.id)
+        )
+        if previous_op:
+            from productflow_backend.application.execution.legacy_retries import retry_session
+
+            return retry_session(session, root, previous_op, actor)
     prompt = _normalize_generation_prompt(payload["prompt"])
     options = _normalize_tool_options(payload.get("tool_options"))
     size, base_id, reference_ids = _validate_generation_request(
@@ -231,6 +239,15 @@ def accept_workflow(
 
     capacity_lock(session)
     locked(session, Product, product_id)
+    if retry_run and session.scalar(
+        select(ExecutionOperation.id)
+        .join(WorkflowNodeRun, ExecutionOperation.workflow_node_run_id == WorkflowNodeRun.id)
+        .where(WorkflowNodeRun.workflow_run_id == retry_run.id)
+        .limit(1)
+    ):
+        from productflow_backend.application.execution.legacy_retries import retry_workflow
+
+        return retry_workflow(session, product_id, retry_run, actor)
     workflow = get_or_create_product_workflow(session, product_id, commit=False)
     selected = (
         {row.node_id for row in retry_run.node_runs if row.status != "succeeded"}
@@ -382,7 +399,10 @@ def change_workflow_run(session, product_id: str, run_id: str, action: str, payl
         )
     )
     if action == "cancel":
-        run.status, run.finished_at, run.row_version = "cancelled", utcnow(), run.row_version + 1
+        from productflow_backend.application.product_workflow.run_state import mark_workflow_run_cancelled
+
+        mark_workflow_run_cancelled(session, run_id=run.id, commit=False)
+        run.row_version += 1
         for operation in operations:
             cancel_undispatched(session, operation)
         return run

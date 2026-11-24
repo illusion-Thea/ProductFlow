@@ -300,9 +300,10 @@ setError(mutationError instanceof Error ? mutationError.message : "创建商品�
 ### 1. Scope
 `ExecutionSummary`, `PrototypeTask`, `PrototypeStatus`, `PrototypeDraft`, and `ContentLanguage` live in `lib/types.ts`, aligned with backend presentation schemas. Legacy workflow/session responses remain their original envelopes with additive execution summaries.
 ### 2. Signatures
-`api.executeAction(operation, action, acknowledge)` uses the operation version except legacy retry, which requires the root version. `controlledWrite<T>(path, scope, payload, method)` owns identity validation and idempotency.
+`api.executeAction(operation, action, acknowledge)` uses the operation version except legacy retry, which requires the root version. `controlledWrite<T>(path, scope, payload, method, recoveryKey?)` owns identity validation and idempotency; recoveryKey fences an explicit replay to the existing intent.
 ### 3. Contracts
 Keep null cost/wait/recovery values explicit. Unknown is a technical status, separate from business state. API requests preserve cookie credentials, JSON Content-Type and caller Idempotency-Key; FormData must retain browser boundary handling. Environment identity must match before every controlled write.
+`PrototypeStatus.operations_partial` marks a lightweight operation subset, not a replacement for full detail history. Workflow status merge retains additive `row_version` and node `execution` fields used by cancellation, retry and unknown polling.
 ### 4. Error matrix
 `executionErrorMessage` localizes known conflict, quota, authorization, uncertainty, input and isolation errors. Never render raw FastAPI detail arrays or classify unknown as zero-cost failure.
 ### 5. Cases

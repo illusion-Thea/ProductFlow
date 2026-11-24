@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Protocol
 
 
@@ -13,6 +14,7 @@ class DispatchPermit:
     claim_epoch: int
     snapshot: dict[str, Any]
     modality: str
+    deadline_at: datetime | None = None
 
 
 @dataclass(frozen=True)

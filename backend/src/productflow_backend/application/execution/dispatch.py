@@ -156,6 +156,27 @@ def consume_transport_permit(stage_id: str, token: str) -> DispatchPermit | None
             stage.claim_epoch,
             call.model_snapshot_json["resolved_input"],
             call.modality,
+            stage.deadline_at,
+        )
+
+
+def transport_permit_is_current(permit: DispatchPermit) -> bool:
+    """Final send boundary, after transport setup/pause and before any request.
+
+    A stale stack cannot use capacity released by deadline or wait closure. The
+    transaction is short; the request itself never holds a database lock.
+    """
+    if permit.deadline_at is None or expired(utcnow(), permit.deadline_at):
+        return False
+    with get_session_factory()() as session, session.begin():
+        operation, _, stage = lock_stage(session, permit.stage_id)
+        call = session.get(ModelCall, permit.call_id)
+        return bool(
+            call and call.stage_id == stage.id and call.outcome == "pending"
+            and call.wait_closed_at is None and stage.state == "running"
+            and stage.claim_token == permit.claim_token and stage.claim_epoch == permit.claim_epoch
+            and not expired(utcnow(), stage.deadline_at) and not expired(utcnow(), call.wait_deadline_at)
+            and not cancelled(session, operation)
         )
 
 

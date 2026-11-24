@@ -769,6 +769,7 @@ export interface PrototypePlan {
   slots: { item_id: string; slot_index: number; copy_payload: CopyPayloadV2; base_prompt: string; fact_refs: string[]; reference_refs: string[] }[];
 }
 export interface PrototypeStatus {
+  operations_partial?: boolean;
   id: string; task_id: string; product_id: string; batch_id: string; experiment_run_id: string;
   business_state: "draft" | "awaiting_generation_confirmation" | "generating" | "needs_attention" | "cancelling" | "cancelled";
   issue_code: string | null; row_version: number; status_version: number; current_plan_id: string | null;

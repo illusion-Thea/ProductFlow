@@ -1,4 +1,4 @@
-export interface ExecutionIntent { key: string; payloadHash: string }
+export interface ExecutionIntent { key: string; payloadHash: string; payload?: unknown }
 export interface IntentStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 
 export function readExecutionIntent(storage: IntentStorage, scope: string): ExecutionIntent | null {
@@ -7,7 +7,7 @@ export function readExecutionIntent(storage: IntentStorage, scope: string): Exec
   const parsed: unknown = JSON.parse(saved);
   if (typeof parsed !== "object" || !parsed || !("key" in parsed) || typeof parsed.key !== "string"
     || !("payloadHash" in parsed) || typeof parsed.payloadHash !== "string") throw new Error("submission_unresolved");
-  return { key: parsed.key, payloadHash: parsed.payloadHash };
+  return { key: parsed.key, payloadHash: parsed.payloadHash, ...("payload" in parsed ? { payload: parsed.payload } : {}) };
 }
 
 function ordered(value: unknown): unknown {
@@ -18,15 +18,21 @@ function ordered(value: unknown): unknown {
   return value;
 }
 
-export async function executionIntent(storage: IntentStorage, scope: string, payload: unknown): Promise<ExecutionIntent> {
+export async function executionPayloadHash(payload: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(ordered(payload))));
-  const payloadHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function executionIntent(storage: IntentStorage, scope: string, payload: unknown): Promise<ExecutionIntent> {
+  const payloadHash = await executionPayloadHash(payload);
   const saved = readExecutionIntent(storage, scope);
   if (saved) {
     if (saved.payloadHash !== payloadHash) throw new Error("submission_unresolved");
     return saved;
   }
-  const intent = { key: crypto.randomUUID(), payloadHash };
+  // Only controlled business mutations use this per-tab store (no credentials
+  // or uploaded bytes). The original payload is necessary for safe replay.
+  const intent = { key: crypto.randomUUID(), payloadHash, payload };
   storage.setItem(scope, JSON.stringify(intent));
   return intent;
 }

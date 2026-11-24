@@ -41,11 +41,11 @@ def test_isolated_postgres_expand_data_and_fresh_head(monkeypatch, suffix):
             assert initialized and report["database"] == database
             report.setdefault("initial_head", report["head"])
             command.upgrade(config, "head")
-            report["head"] = "20261123_0033"
+            report["head"] = "20261124_0034"
             evidence.write_text(json.dumps(report, indent=2), encoding="utf-8")
         else:
             assert not initialized, "Unrecorded fixture database is never reset or downgraded"
-            report = {"database": database, "environment_id": data["environment_id"], "head": "20261123_0033"}
+            report = {"database": database, "environment_id": data["environment_id"], "head": "20261124_0034"}
             if suffix == "_migration":
                 command.upgrade(config, "20260627_0029")
                 metadata = sa.MetaData()
@@ -96,7 +96,7 @@ def test_isolated_postgres_expand_data_and_fresh_head(monkeypatch, suffix):
             command.upgrade(config, "head")
             evidence.write_text(json.dumps(report, indent=2), encoding="utf-8")
         with Session(engine) as session:
-            assert session.scalar(sa.text("SELECT version_num FROM alembic_version")) == "20261123_0033"
+            assert session.scalar(sa.text("SELECT version_num FROM alembic_version")) == "20261124_0034"
             assert session.scalar(sa.text("SELECT count(*) FROM model_calls")) == 0
             if suffix == "_migration":
                 active = session.get(ImageSessionGenerationTask, report["active_id"])

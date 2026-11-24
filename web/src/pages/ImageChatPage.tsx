@@ -1,4 +1,5 @@
 import { ExecutionHistoryPanel } from "../components/ExecutionHistoryPanel";
+import { ExecutionIntentRecovery } from "../components/ExecutionIntentRecovery";
 import { useExecutionActions } from "../lib/useExecutionActions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
@@ -603,7 +604,7 @@ export function ImageChatPage() {
         setSelectedTaskPlaceholderId(placeholderId);
         setSelectedGeneratedAssetId(null);
       }
-      setDraft("");
+      setDraft((current) => current.trim() === variables.prompt.trim() ? "" : current);
       setSuccessMessage(
         submittedCount > 1
           ? t("chat.submittedCount", { count: submittedCount })
@@ -617,6 +618,7 @@ export function ImageChatPage() {
         duplicateSubmitGuardRef.current = null;
       }
       setErrorMessage(error instanceof ApiError ? error.detail : t("chat.generateFailed"));
+      void queryClient.invalidateQueries({ queryKey: ["image-session", selectedSessionId] });
     },
   });
 
@@ -993,6 +995,10 @@ export function ImageChatPage() {
         onLogout={() => logoutMutation.mutate()}
       />
 
+      <ExecutionIntentRecovery error={generateMutation.error ?? retryGenerationTaskMutation.error ?? cancelGenerationTaskMutation.error} onRecovered={async () => {
+        generateMutation.reset(); retryGenerationTaskMutation.reset(); cancelGenerationTaskMutation.reset();
+        setErrorMessage(""); await queryClient.invalidateQueries({ queryKey: ["image-session", selectedSessionId] });
+      }} />
       <ExecutionHistoryPanel operations={imageSession?.generation_tasks.flatMap((task) => task.execution ? [task.execution] : []) ?? []} pending={executionActions.isPending} error={executionActions.error}
         onAction={(operation, action, acknowledge) => executionActions.mutate({ operation, action, acknowledge })} />
       <main

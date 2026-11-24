@@ -1,3 +1,4 @@
+import { executionNeedsPolling } from "../../lib/executionPolling";
 import { DEFAULT_LOCALE, translate, type TranslationKey, type TranslationParams } from "../../lib/i18n";
 import type {
   ProductWorkflow,
@@ -348,7 +349,7 @@ export function hasActiveWorkflow(workflow: ProductWorkflow | undefined | null):
     return false;
   }
   return (
-    workflow.runs.some((run) => run.status === "running") ||
+    workflow.runs.some((run) => run.status === "running" || run.node_runs.some((node) => executionNeedsPolling(node.execution))) ||
     workflow.nodes.some((node) => node.status === "queued" || node.status === "running")
   );
 }
@@ -377,6 +378,8 @@ export function mergeProductWorkflowStatusIntoDetail(
     const existingRun = existingRunById.get(run.id);
     const existingNodeRunById = new Map((existingRun?.node_runs ?? []).map((nodeRun) => [nodeRun.id, nodeRun]));
     return {
+      ...existingRun,
+      ...run,
       id: run.id,
       workflow_id: run.workflow_id,
       status: run.status,
@@ -395,6 +398,8 @@ export function mergeProductWorkflowStatusIntoDetail(
       node_runs: run.node_runs.map((nodeRun): WorkflowNodeRun => {
         const existingNodeRun = existingNodeRunById.get(nodeRun.id);
         return {
+          ...existingNodeRun,
+          ...nodeRun,
           id: nodeRun.id,
           workflow_run_id: nodeRun.workflow_run_id,
           node_id: nodeRun.node_id,
