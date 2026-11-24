@@ -1,7 +1,7 @@
 export type ProductWorkflowState = "draft" | "copy_ready" | "poster_ready" | "failed";
 export type CopyStatus = "draft" | "confirmed";
 export type PosterKind = "main_image" | "promo_poster";
-export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
 export type SourceAssetKind = "original_image" | "reference_image" | "processed_product_image";
 export type ImageSessionAssetKind = "reference_upload" | "generated_image";
 export type WorkflowNodeType =
@@ -9,9 +9,9 @@ export type WorkflowNodeType =
   | "reference_image"
   | "copy_generation"
   | "image_generation";
-export type WorkflowNodeStatus = "idle" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type WorkflowNodeStatus = "idle" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "unknown";
 export type WorkflowNodeRunStatusValue = WorkflowNodeStatus;
-export type WorkflowRunStatus = "running" | "succeeded" | "failed" | "cancelled";
+export type WorkflowRunStatus = "running" | "succeeded" | "failed" | "cancelled" | "unknown";
 export type WorkflowRetryHint = "retry_later" | "revise_input" | "check_settings";
 export type CanvasTemplateKind = "full_canvas" | "node_group";
 export type CanvasTemplateScenario =
@@ -222,6 +222,7 @@ export interface WorkflowEdge {
 }
 
 export interface WorkflowNodeRun {
+  execution?: ExecutionSummary | null;
   id: string;
   workflow_run_id: string;
   node_id: string;
@@ -235,6 +236,7 @@ export interface WorkflowNodeRun {
 }
 
 export interface WorkflowNodeRunStatus {
+  execution?: ExecutionSummary | null;
   id: string;
   workflow_run_id: string;
   node_id: string;
@@ -245,6 +247,7 @@ export interface WorkflowNodeRunStatus {
 }
 
 export interface WorkflowRun {
+  row_version?: number;
   id: string;
   workflow_id: string;
   status: WorkflowRunStatus;
@@ -264,6 +267,7 @@ export interface WorkflowRun {
 }
 
 export interface WorkflowRunStatusSummary {
+  row_version?: number;
   id: string;
   workflow_id: string;
   status: WorkflowRunStatus;
@@ -460,6 +464,9 @@ export interface ImageToolOptions {
 export type ImageToolOptionKey = keyof ImageToolOptions;
 
 export interface ImageSessionGenerationTask {
+  retry_of_task_id?: string | null;
+  row_version?: number;
+  execution?: ExecutionSummary | null;
   id: string;
   session_id: string;
   status: JobStatus;
@@ -737,4 +744,42 @@ export interface DuplicateWorkflowNodeGroupInput {
   offset_y?: number;
   position_x?: number;
   position_y?: number;
+}
+
+export type ContentLanguage = "zh-CN" | "ms-MY" | "id-ID" | "fil-PH";
+export type ExecutionState = "queued" | "running" | "dispatch_blocked" | "awaiting_local_decision" | "succeeded" | "failed" | "unknown" | "cancelled";
+export type ExecutionAction = "retry" | "close-wait" | "resume-local" | "end-local";
+export interface ExecutionSummary {
+  operation_id: string; attempt_id: string; row_version: number; root_row_version: number;
+  source_kind: "prototype" | "image_session" | "workflow"; source_id: string;
+  state: ExecutionState; wait_closed_at: string | null; status_url: string; action_url: string; retry_url: string;
+  current_recovery: { id: string; state: string; deadline_at: string; recovery_sequence: number; last_error: string | null } | null;
+}
+export interface PrototypeExperiment {
+  id: string; mode: "synthetic"; status: string; source_asset_ids: string[];
+  image_limit: number; image_reserved_count: number; quota_remaining: number;
+}
+export interface PrototypeDraft {
+  sku: string | null; content_language: ContentLanguage; source_asset_ids: string[];
+  output_spec: { width: number; height: number; test_only: true };
+}
+export interface PrototypePlan {
+  id: string; revision: number; status: "draft" | "validated" | "accepted";
+  content_language: ContentLanguage; preview_revision: number; source_draft_revision: number; input_sha256: string;
+  slots: { item_id: string; slot_index: number; copy_payload: CopyPayloadV2; base_prompt: string; fact_refs: string[]; reference_refs: string[] }[];
+}
+export interface PrototypeStatus {
+  operations_partial?: boolean;
+  id: string; task_id: string; product_id: string; batch_id: string; experiment_run_id: string;
+  business_state: "draft" | "awaiting_generation_confirmation" | "generating" | "needs_attention" | "cancelling" | "cancelled";
+  issue_code: string | null; row_version: number; status_version: number; current_plan_id: string | null;
+  draft_content_language: ContentLanguage; draft_revision: number; image_limit: number; image_reserved_count: number; quota_remaining: number;
+  slots: { id: string; slot_index: number; first_attempt_id: string | null }[]; operations: ExecutionSummary[];
+}
+export interface ExecutionArtifact {
+  id: string; attempt_id: string; is_late: boolean; asset_kind: string; availability: string; content_url: string;
+}
+export interface PrototypeTask extends PrototypeStatus {
+  draft: { sku: string | null; output_spec: PrototypeDraft["output_spec"]; evidence: { source_asset_id: string }[] };
+  plans: PrototypePlan[]; artifacts: ExecutionArtifact[];
 }

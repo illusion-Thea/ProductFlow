@@ -168,13 +168,22 @@ class GoogleGeminiImageClient:
         self.output_mime_type = resolved_config.gemini_output_mime_type
 
     def _client(self) -> genai.Client:
+        from productflow_backend.infrastructure.provider_transport import (
+            require_real_transport_disabled_in_verification,
+        )
+
+        require_real_transport_disabled_in_verification()
         if not self.api_key:
             raise RuntimeError("图片供应商档案缺少 API Key")
         if self.base_url:
             raise RuntimeError("Google Gemini 供应商暂不支持自定义 Base URL")
         return genai.Client(
             api_key=self.api_key,
-            http_options=types.HttpOptions(apiVersion=self.api_version),
+            http_options=types.HttpOptions(
+                apiVersion=self.api_version, retry_options=types.HttpRetryOptions(attempts=1),
+                client_args={"follow_redirects": False, "trust_env": False},
+                async_client_args={"follow_redirects": False, "trust_env": False},
+            ),
         )
 
     def generate_image(

@@ -309,3 +309,20 @@ print(f"run failed: {provider_payload}")
 ```python
 logger.warning("工作流运行失败: run_id=%s failed_node_id=%s reason=%s", run_id, node_id, reason)
 ```
+
+## M1-01 execution correlation
+
+### 1. Scope
+Execution logs use `infrastructure/logging.py::log_execution_event`; retained transport evidence is distinct from application diagnostics.
+### 2. Signature
+`log_execution_event(event_name: str, **identifiers: str | int | None) -> None` accepts only the implemented correlation-field whitelist.
+### 3. Contracts
+Record environment/operation/attempt/stage/ModelCall/root identifiers. Do not log prompts, model payloads, auth keys, full configuration or bytes. A fsynced stub journal records actual call ID, stage, modality, n and PID at transport entry; a reserved ModelCall alone does not prove a send.
+### 4. Validation and errors
+Unsupported log fields raise ValueError. Command evidence redacts generated private-run secrets. Secret-bearing private configuration is never committed.
+### 5. Cases
+Good: correlate one send with its unique call ID. Base: quota intent survives a crash with no journal entry. Bad: interpreting an absent journal/provider lookup as proof a paid request never occurred.
+### 6. Required evidence
+`test_logging_behavior.py` checks allowed IDs and rejected full-payload fields. Scan final run logs for actual disposable secret values without echoing those values.
+### 7. Wrong versus correct
+Wrong: `logger.info(provider_snapshot)`. Correct: `log_execution_event("stub_transport_entered", stage_id=stage_id, model_call_id=call_id)`.

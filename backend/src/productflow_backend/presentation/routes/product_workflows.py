@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
+from productflow_backend.application.execution import legacy as controlled_execution
 from productflow_backend.application.product_workflows import (
     apply_node_group_template_to_workflow,
     archive_user_canvas_template,
@@ -25,6 +26,7 @@ from productflow_backend.application.product_workflows import (
     upload_workflow_node_image,
 )
 from productflow_backend.presentation.deps import get_session, require_admin
+from productflow_backend.presentation.routes.execution_requests import execution_write, require_action_payload
 from productflow_backend.presentation.schemas.product_workflows import (
     ApplyWorkflowTemplateGroupRequest,
     BindWorkflowNodeImageRequest,
@@ -45,6 +47,7 @@ from productflow_backend.presentation.schemas.product_workflows import (
     serialize_product_workflow_status,
     serialize_user_canvas_template_summary,
 )
+from productflow_backend.presentation.schemas.prototype_tasks import OperationActionRequest
 from productflow_backend.presentation.upload_validation import read_validated_image_upload
 
 router = APIRouter(prefix="/api", tags=["product-workflows"], dependencies=[Depends(require_admin)])
@@ -279,9 +282,20 @@ def delete_workflow_node_endpoint(node_id: str, session: Session = Depends(get_s
 @router.post("/products/{product_id}/workflow/run", response_model=ProductWorkflowResponse)
 def run_product_workflow_endpoint(
     product_id: str,
+    request: Request,
     payload: RunWorkflowRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ProductWorkflowResponse:
+    if controlled_execution.enabled():
+        values = payload.model_dump(mode="json") if payload else {}
+        def apply(actor):
+            controlled_execution.accept_workflow(session, product_id, values, actor)
+            session.flush()
+            session.expire_all()
+            workflow = get_or_create_product_workflow(session, product_id, commit=False)
+            return 202, serialize_product_workflow(workflow).model_dump(mode="json")
+        return execution_write(request, session, f"product:{product_id}:run", values, apply,
+            prepare=lambda: controlled_execution.prepare_asset_manifest("product", product_id))
     workflow = submit_product_workflow_run(
         session,
         product_id=product_id,
@@ -293,9 +307,20 @@ def run_product_workflow_endpoint(
 @router.post("/products/{product_id}/workflow/runs/{run_id}/cancel", response_model=ProductWorkflowResponse)
 def cancel_product_workflow_run_endpoint(
     product_id: str,
+    request: Request,
     run_id: str,
+    payload: OperationActionRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ProductWorkflowResponse:
+    if controlled_execution.enabled():
+        values = require_action_payload(payload)
+        def apply(actor):
+            controlled_execution.change_workflow_run(session, product_id, run_id, "cancel", values, actor)
+            session.flush()
+            session.expire_all()
+            workflow = get_or_create_product_workflow(session, product_id, commit=False)
+            return 200, serialize_product_workflow(workflow).model_dump(mode="json")
+        return execution_write(request, session, f"workflow_run:{run_id}:cancel", values, apply)
     workflow = cancel_product_workflow_run(session, product_id=product_id, run_id=run_id)
     return serialize_product_workflow(workflow)
 
@@ -307,8 +332,20 @@ def cancel_product_workflow_run_endpoint(
 )
 def retry_product_workflow_run_endpoint(
     product_id: str,
+    request: Request,
     run_id: str,
+    payload: OperationActionRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ProductWorkflowResponse:
+    if controlled_execution.enabled():
+        values = require_action_payload(payload)
+        def apply(actor):
+            controlled_execution.change_workflow_run(session, product_id, run_id, "retry", values, actor)
+            session.flush()
+            session.expire_all()
+            workflow = get_or_create_product_workflow(session, product_id, commit=False)
+            return 202, serialize_product_workflow(workflow).model_dump(mode="json")
+        return execution_write(request, session, f"workflow_run:{run_id}:retry", values, apply,
+            prepare=lambda: controlled_execution.prepare_asset_manifest("product", product_id))
     workflow = retry_product_workflow_run(session, product_id=product_id, run_id=run_id)
     return serialize_product_workflow(workflow)

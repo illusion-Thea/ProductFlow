@@ -461,6 +461,7 @@ const MINI_MAP_NODE_COLORS: Record<WorkflowNode["node_type"], string> = {
   image_generation: "#22c55e",
 };
 const MINI_MAP_STATUS_STROKE_COLORS: Record<WorkflowNode["status"], string> = {
+  unknown: "#d97706",
   idle: "#94a3b8",
   queued: "#f59e0b",
   running: "#2563eb",

@@ -209,7 +209,7 @@ def test_runtime_config_ignores_database_rows_for_env_only_settings(configured_e
     assert settings.settings_access_token == "super-secret-settings-token"
     assert settings.session_secret == "super-secret-session-key-123"
     assert settings.database_url != "sqlite:///database-override.db"
-    assert settings.redis_url == "redis://localhost:6379/9"
+    assert settings.redis_url == get_settings().redis_url
 
 
 def test_settings_unlock_does_not_bypass_missing_token_after_env_change(

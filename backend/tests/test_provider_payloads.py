@@ -187,9 +187,9 @@ def test_prompt_settings_reach_provider_prompt_builders(configured_env: Path, mo
             self.output_parsed = output_parsed
 
     class DummyTextResponses:
-        def parse(self, **kwargs):
+        def create(self, **kwargs):
             text_calls.append(kwargs)
-            if kwargs["text_format"] is CreativeBriefPayload:
+            if kwargs["text"]["format"]["name"] == "CreativeBriefPayload":
                 return DummyParsedTextResponse(
                     CreativeBriefPayload(
                         positioning="入门定位",
@@ -203,8 +203,8 @@ def test_prompt_settings_reach_provider_prompt_builders(configured_env: Path, mo
                 OpenAICopyPayloadStructuredOutput(**_openai_copy_output_payload())
             )
 
-        def create(self, **kwargs):
-            raise AssertionError("text provider must use structured outputs")
+        def parse(self, **kwargs):
+            raise AssertionError("metadata must be retained before local parsing")
 
     class DummyTextOpenAI:
         def __init__(self, **kwargs) -> None:
@@ -224,10 +224,11 @@ def test_prompt_settings_reach_provider_prompt_builders(configured_env: Path, mo
     text_provider.generate_copy(product_input, brief)
 
     assert text_calls[0]["instructions"] == "自定义商品理解提示"
-    assert text_calls[0]["text_format"] is CreativeBriefPayload
+    assert text_calls[0]["text"]["format"]["name"] == "CreativeBriefPayload"
+    assert text_calls[0]["text"]["format"]["strict"] is True
     assert text_calls[0]["input"][0]["role"] == "user"
     assert text_calls[1]["instructions"] == "自定义文案提示"
-    assert text_calls[1]["text_format"] is OpenAICopyPayloadStructuredOutput
+    assert text_calls[1]["text"]["format"]["name"] == "OpenAICopyPayloadStructuredOutput"
     assert text_calls[1]["input"][0]["role"] == "user"
 
     source_path = configured_env / "prompt-provider-source.png"
@@ -292,9 +293,9 @@ def test_openai_text_provider_uses_structured_outputs_for_brief_and_copy(
             self.output_parsed = output_parsed
 
     class DummyTextResponses:
-        def parse(self, **kwargs):
+        def create(self, **kwargs):
             calls.append(kwargs)
-            if kwargs["text_format"] is CreativeBriefPayload:
+            if kwargs["text"]["format"]["name"] == "CreativeBriefPayload":
                 return DummyParsedTextResponse(
                     CreativeBriefPayload(
                         positioning="厨房收纳定位",
@@ -310,8 +311,8 @@ def test_openai_text_provider_uses_structured_outputs_for_brief_and_copy(
                 )
             )
 
-        def create(self, **kwargs):
-            raise AssertionError("text provider must not use JSON-text create fallback")
+        def parse(self, **kwargs):
+            raise AssertionError("metadata must be retained before local parsing")
 
     class DummyTextOpenAI:
         def __init__(self, **kwargs) -> None:
@@ -339,8 +340,9 @@ def test_openai_text_provider_uses_structured_outputs_for_brief_and_copy(
         ),
     )
 
-    assert calls[0]["text_format"] is CreativeBriefPayload
-    assert calls[1]["text_format"] is OpenAICopyPayloadStructuredOutput
+    assert calls[0]["text"]["format"]["name"] == "CreativeBriefPayload"
+    assert calls[1]["text"]["format"]["name"] == "OpenAICopyPayloadStructuredOutput"
+    assert all(call["text"]["format"]["strict"] is True for call in calls)
     brief_input = json.loads(calls[0]["input"][0]["content"])
     copy_input = json.loads(calls[1]["input"][0]["content"])
     assert brief_input["product"]["name"] == "厨房置物架"
@@ -658,7 +660,7 @@ def test_product_workflow_copy_run_normalizes_provider_scalar_lists(configured_e
     assert latest_brief["payload"]["audience"] == "摄影入门用户、小红书图文内容创作者"
 
 
-def test_product_workflow_copy_run_retries_provider_payload_contract_mismatch(
+def test_product_workflow_copy_run_does_not_retry_provider_payload_contract_mismatch(
     configured_env: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -739,13 +741,13 @@ def test_product_workflow_copy_run_retries_provider_payload_contract_mismatch(
 
     run_response = client.post(f"/api/products/{product_id}/workflow/run", json={})
     assert run_response.status_code == 200
-    workflow_payload = _wait_for_workflow_run(client, product_id, status="succeeded")
+    workflow_payload = _wait_for_workflow_run(client, product_id, status="failed")
     copy_node = next(node for node in workflow_payload["nodes"] if node["node_type"] == "copy_generation")
 
-    assert RetryingTextProvider.brief_attempts == 2
-    assert RetryingTextProvider.copy_attempts == 2
-    assert copy_node["output_json"]["summary"] == "文案：轻巧稳固，随手收纳"
-    assert copy_node["output_json"]["structured_payload"]["summary"] == "轻巧稳固，随手收纳"
+    assert RetryingTextProvider.brief_attempts == 1
+    assert RetryingTextProvider.copy_attempts == 0
+    assert copy_node["status"] == "failed"
+    assert not (copy_node["output_json"] or {}).get("structured_payload")
 
 
 def test_mock_image_provider_does_not_read_runtime_settings_during_generation(
@@ -997,7 +999,10 @@ def test_image_session_openai_responses_uses_explicit_branch_context(
     assert branched_round["base_asset_id"] == first_asset_id
     assert branched_round["selected_reference_asset_ids"] == [reference_id]
 
-    assert client_kwargs[0] == {"api_key": "demo-api-key", "base_url": "https://example.test/v1"}
+    assert client_kwargs[0]["api_key"] == "demo-api-key"
+    assert client_kwargs[0]["base_url"] == "https://example.test/v1"
+    assert client_kwargs[0]["max_retries"] == 0
+    assert client_kwargs[0]["http_client"].follow_redirects is False
     assert calls[0]["model"] == "gpt-5.4"
     assert calls[0]["tools"] == [{"type": "image_generation", "size": "1024x1024"}]
     assert "previous_response_id" not in calls[0]
@@ -1273,7 +1278,7 @@ def test_openai_responses_image_client_polls_background_response_and_reports_pro
     assert progress_events[-1]["provider_response"]["output"][0]["result"].startswith("<base64 omitted")
 
 
-def test_openai_responses_image_client_falls_back_when_background_is_unsupported(
+def test_openai_responses_image_client_never_resends_when_background_is_unsupported(
     configured_env: Path,
     monkeypatch,
 ) -> None:
@@ -1316,13 +1321,11 @@ def test_openai_responses_image_client_falls_back_when_background_is_unsupported
 
     from productflow_backend.infrastructure.image.responses_provider import OpenAIResponsesImageClient
 
-    result = OpenAIResponsesImageClient().generate_image(prompt="兼容同步响应", size="1024x1024")
+    with pytest.raises(RuntimeError, match="图片供应商请求失败"):
+        OpenAIResponsesImageClient().generate_image(prompt="兼容同步响应", size="1024x1024")
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert calls[0]["background"] is True
-    assert "background" not in calls[1]
-    assert result.provider_response_id == "resp_sync_fallback"
-    assert result.image_generation_call_id == "ig_sync_fallback"
 
 
 def test_openai_responses_image_client_wraps_background_poll_errors(
@@ -1441,7 +1444,7 @@ def test_openai_responses_image_client_redacts_base_url_credentials_in_logs(
     assert "demo-api-key" not in log_text
 
 
-def test_openai_responses_image_client_retries_without_optional_fields_and_records_note(
+def test_openai_responses_image_client_preserves_optional_fields_without_retry(
     configured_env: Path,
     monkeypatch,
 ) -> None:
@@ -1485,22 +1488,16 @@ def test_openai_responses_image_client_retries_without_optional_fields_and_recor
 
     from productflow_backend.infrastructure.image.responses_provider import OpenAIResponsesImageClient
 
-    result = OpenAIResponsesImageClient().generate_image(
-        prompt="带每轮字段",
-        size="1024x1024",
-        tool_options={"quality": "high", "output_format": "webp", "n": 2},
-    )
+    with pytest.raises(RuntimeError, match="图片供应商请求失败"):
+        OpenAIResponsesImageClient().generate_image(
+            prompt="带每轮字段", size="1024x1024",
+            tool_options={"quality": "high", "output_format": "webp", "n": 2},
+        )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert calls[0]["tools"] == [
         {"type": "image_generation", "size": "1024x1024", "quality": "high", "output_format": "webp"}
     ]
-    assert calls[1]["tools"] == [{"type": "image_generation", "size": "1024x1024"}]
-    assert result.provider_request_json["_productflow"]["fallback_used"] is True
-    assert result.provider_output_json["_productflow"]["notes"] == [
-        {"kind": "fallback", "message": "供应商不支持部分参数，已按基础参数完成。"}
-    ]
-    assert "unsupported field" not in str(result.provider_output_json)
 
 
 def test_openai_responses_image_client_records_provider_adjusted_note(
@@ -1676,14 +1673,17 @@ def test_openai_images_provider_factory_and_client_generate_payload(
 
     result = OpenAIImagesClient().generate(prompt="生成商品图", size="1024x1024")[0]
 
-    assert client_kwargs == [{"api_key": "demo-api-key", "base_url": "https://example.test/v1"}]
+    assert len(client_kwargs) == 1
+    assert client_kwargs[0]["api_key"] == "demo-api-key"
+    assert client_kwargs[0]["base_url"] == "https://example.test/v1"
+    assert client_kwargs[0]["max_retries"] == 0
+    assert client_kwargs[0]["http_client"].follow_redirects is False
     assert calls == [
         {
             "model": "gpt-image-1",
             "prompt": "生成商品图",
             "size": "1024x1024",
             "n": 1,
-            "response_format": "b64_json",
             "quality": "high",
             "style": "vivid",
         }
@@ -1814,7 +1814,7 @@ def test_google_gemini_size_mapping_and_sanitized_errors() -> None:
     assert str(missing_key.value) == "图片供应商档案缺少 API Key"
 
 
-def test_openai_images_client_retries_generate_without_optional_fields(
+def test_openai_images_client_preserves_optional_fields_without_retry(
     configured_env: Path,
     monkeypatch,
 ) -> None:
@@ -1843,20 +1843,15 @@ def test_openai_images_client_retries_generate_without_optional_fields(
 
     from productflow_backend.infrastructure.image.images_provider import OpenAIImagesClient
 
-    result = OpenAIImagesClient().generate(prompt="fallback", size="1024x1024")[0]
+    with pytest.raises(RuntimeError, match="图片供应商请求失败"):
+        OpenAIImagesClient().generate(prompt="fallback", size="1024x1024")
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "quality" in calls[0]
     assert "style" in calls[0]
-    assert "quality" not in calls[1]
-    assert "style" not in calls[1]
-    assert result.provider_output_json["_productflow"]["notes"] == [
-        {"kind": "fallback", "message": "供应商不支持部分可选参数，已按基础参数完成。"}
-    ]
-    assert "unsupported optional field" not in str(result.provider_output_json)
 
 
-def test_openai_images_client_edit_sends_multiple_images_and_falls_back_to_base_image(
+def test_openai_images_client_edit_never_drops_references_or_resends(
     configured_env: Path,
     monkeypatch,
 ) -> None:
@@ -1884,39 +1879,18 @@ def test_openai_images_client_edit_sends_multiple_images_and_falls_back_to_base_
 
     from productflow_backend.infrastructure.image.images_provider import ImagesReferenceImage, OpenAIImagesClient
 
-    result = OpenAIImagesClient().edit(
-        image=[
-            ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "base.png"),
-            ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "ref.png"),
-        ],
-        prompt="改图",
-        size="1024x1024",
-    )[0]
+    with pytest.raises(RuntimeError, match="图片供应商请求失败"):
+        OpenAIImagesClient().edit(
+            image=[
+                ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "base.png"),
+                ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "ref.png"),
+            ], prompt="改图", size="1024x1024",
+        )
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert isinstance(calls[0]["image"], list)
     assert [image.name for image in calls[0]["image"]] == ["base.png", "ref.png"]
     assert calls[0]["quality"] == "high"
-    assert calls[1]["image"].name == "base.png"
-    assert "quality" not in calls[1]
-    assert result.provider_request_json == {
-        "model": "gpt-image-1",
-        "prompt": "改图",
-        "size": "1024x1024",
-        "n": 1,
-        "image_count": 1,
-        "images": [{"filename": "base.png", "mime_type": "image/png"}],
-        "has_mask": False,
-    }
-    assert result.provider_output_json["_productflow"] == {
-        "notes": [
-            {"kind": "fallback", "message": "供应商不支持部分可选参数，已按基础参数完成。"},
-            {"kind": "multi_image_fallback", "message": "供应商不支持多张编辑输入，已仅使用基图完成。"},
-        ],
-        "requested_image_count": 2,
-        "effective_image_count": 1,
-    }
-    assert "multiple files" not in str(result.provider_output_json)
 
 
 def test_openai_images_client_reports_missing_output_and_sanitizes_failures(
@@ -2226,3 +2200,61 @@ def test_openai_responses_image_client_reports_completed_text_without_image(
         OpenAIResponsesImageClient().generate_image(prompt="只返回文字", size="1024x1024")
 
     assert str(error.value) == "图片供应商已完成请求，但返回的是文字回复，没有返回图片结果"
+
+
+@pytest.mark.parametrize("method", ["generate", "edit"])
+@pytest.mark.parametrize(
+    ("configured_model", "requested_model", "expects_response_format"),
+    [
+        ("gpt-image-2.6-sunburst", None, False),
+        ("dall-e-2", None, True),
+        ("dall-e-2", "gpt-image-2.6-sunburst", False),
+        ("gpt-image-2.6-sunburst", "dall-e-2", True),
+    ],
+)
+def test_openai_images_response_format_matches_effective_model(
+    configured_env: Path,
+    monkeypatch,
+    method: str,
+    configured_model: str,
+    requested_model: str | None,
+    expects_response_format: bool,
+) -> None:
+    from productflow_backend.infrastructure.image.images_provider import ImagesReferenceImage, OpenAIImagesClient
+    from productflow_backend.infrastructure.provider_config import ResolvedImageProviderConfig
+
+    calls: list[dict] = []
+    encoded_result = _make_demo_image_data_url().split(",", maxsplit=1)[1]
+
+    class DummyImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if expects_response_format:
+                assert kwargs["response_format"] == "b64_json"
+            else:
+                assert "response_format" not in kwargs
+            return DummyImagesAPIResponse(encoded_result)
+
+        edit = generate
+
+    class DummyOpenAI:
+        def __init__(self, **kwargs) -> None:
+            self.images = DummyImages()
+
+    monkeypatch.setattr("productflow_backend.infrastructure.image.images_provider.OpenAI", DummyOpenAI)
+    client = OpenAIImagesClient(
+        ResolvedImageProviderConfig(
+            provider_kind="openai_images",
+            model=configured_model,
+            api_key="demo-api-key",
+        )
+    )
+    kwargs = {"prompt": "API compatibility", "size": "1024x1024", "model": requested_model}
+    if method == "edit":
+        kwargs["image"] = [ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "reference.png")]
+    result = getattr(client, method)(**kwargs)[0]
+
+    assert len(calls) == 1
+    assert calls[0]["model"] == (requested_model or configured_model)
+    assert result.model_name == (requested_model or configured_model)
+    assert result.mime_type == "image/png"

@@ -9,6 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from productflow_backend.config import get_settings
+
 if TYPE_CHECKING:
     from productflow_backend.application.product_workflow_dependencies import WorkflowExecutionDependencies
 
@@ -37,7 +39,7 @@ def _read_image_size(image_bytes: bytes) -> tuple[int, int]:
 def _login(client: TestClient) -> None:
     login = client.post("/api/auth/session", json={"admin_key": "super-secret-admin-key"})
     assert login.status_code == 200
-    assert "session" in client.cookies, "login did not persist session cookie"
+    assert get_settings().session_cookie_name in client.cookies, "login did not persist session cookie"
     state = client.get("/api/auth/session")
     assert state.status_code == 200, f"session state failed after login: {state.status_code}: {state.text}"
     assert state.json()["authenticated"] is True, (

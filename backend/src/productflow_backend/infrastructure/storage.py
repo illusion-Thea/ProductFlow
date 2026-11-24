@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import mimetypes
+import os
 import shutil
 from pathlib import Path
 from typing import Literal
@@ -25,7 +27,33 @@ class LocalStorage:
     def __init__(self, root: Path | None = None) -> None:
         settings = get_settings()
         self.root = (root or settings.storage_root).resolve()
+        if os.name == "nt" and not str(self.root).startswith("\\\\?\\"):
+            # Pillow/native codecs also need the extended path on deeply nested
+            # isolated runs. Resolve containment before adding this Windows prefix.
+            self.root = Path("\\\\?\\" + str(self.root))
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def save_execution_bytes(self, relative_path: str, content: bytes) -> tuple[str, str]:
+        """Publish immutable bytes atomically; retries may only reuse the same hash."""
+        target = self.resolve(relative_path)
+        if not relative_path.startswith(("spool/", "artifacts/")):
+            raise ValueError("execution_path_prefix_required")
+        digest = hashlib.sha256(content).hexdigest()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f"{target.name}.{uuid4()}.part")
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, target)
+            except FileExistsError:
+                if hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+                    raise ValueError("immutable_execution_result_conflict") from None
+        finally:
+            temporary.unlink(missing_ok=True)
+        return relative_path, digest
 
     def save_product_upload(
         self,

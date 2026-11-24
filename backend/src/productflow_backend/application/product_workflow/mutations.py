@@ -213,11 +213,11 @@ def apply_workflow_node_patch(
     return changed
 
 
-def get_or_create_product_workflow(session: Session, product_id: str) -> ProductWorkflow:
+def get_or_create_product_workflow(session: Session, product_id: str, *, commit: bool = True) -> ProductWorkflow:
     existing = product_workflow_graph.get_active_workflow(session, product_id)
     if existing is not None:
         if _normalize_product_context_singleton(session, existing):
-            session.commit()
+            session.commit() if commit else session.flush()
             session.expire_all()
             return product_workflow_graph.get_active_workflow(
                 session, product_id
@@ -242,6 +242,9 @@ def get_or_create_product_workflow(session: Session, product_id: str) -> Product
     session.flush()
     for edge in product_workflow_graph.default_edges(nodes_by_key, workflow.id):
         session.add(edge)
+    if not commit:
+        session.flush()
+        return product_workflow_graph.get_workflow_or_raise(session, workflow.id)
     try:
         session.commit()
     except IntegrityError:
@@ -668,6 +671,8 @@ def delete_workflow_edge(session: Session, *, edge_id: str) -> ProductWorkflow:
 def delete_workflow_node(session: Session, *, node_id: str) -> ProductWorkflow:
     node = product_workflow_graph.get_node_or_raise(session, node_id)
     workflow = product_workflow_graph.get_workflow_or_raise(session, node.workflow_id)
+    from productflow_backend.application.execution.protection import protect_product
+    protect_product(session, workflow.product_id)
     if (
         _active_workflow_run(workflow) is not None
         or WORKFLOW_RUN_GENERATION_TASK_CONTRACT.execution_is_queued(node.status)
@@ -711,6 +716,9 @@ def _normalize_product_context_singleton(session: Session, workflow: ProductWork
         changed = True
     duplicate_ids = {node.id for node in product_nodes[1:]}
     if duplicate_ids:
+        from productflow_backend.application.execution.protection import protect_product
+
+        protect_product(session, workflow.product_id)
         session.execute(
             delete(WorkflowEdge).where(
                 (WorkflowEdge.workflow_id == workflow.id)

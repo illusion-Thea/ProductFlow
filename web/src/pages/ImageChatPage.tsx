@@ -1,3 +1,6 @@
+import { ExecutionHistoryPanel } from "../components/ExecutionHistoryPanel";
+import { ExecutionIntentRecovery } from "../components/ExecutionIntentRecovery";
+import { useExecutionActions } from "../lib/useExecutionActions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -601,7 +604,7 @@ export function ImageChatPage() {
         setSelectedTaskPlaceholderId(placeholderId);
         setSelectedGeneratedAssetId(null);
       }
-      setDraft("");
+      setDraft((current) => current.trim() === variables.prompt.trim() ? "" : current);
       setSuccessMessage(
         submittedCount > 1
           ? t("chat.submittedCount", { count: submittedCount })
@@ -615,16 +618,18 @@ export function ImageChatPage() {
         duplicateSubmitGuardRef.current = null;
       }
       setErrorMessage(error instanceof ApiError ? error.detail : t("chat.generateFailed"));
+      void queryClient.invalidateQueries({ queryKey: ["image-session", selectedSessionId] });
     },
   });
 
+  const executionActions = useExecutionActions(selectedSessionId ?? "", "session");
   const retryGenerationTaskMutation = useMutation({
     mutationFn: (input: { sessionId: string; taskId: string }) =>
-      api.retryImageSessionGenerationTask(input.sessionId, input.taskId),
+      api.retryImageSessionGenerationTask(input.sessionId, input.taskId, imageSession?.generation_tasks.find((task) => task.id === input.taskId)?.row_version),
     onSuccess: (updated, input) => {
       queryClient.setQueryData(["image-session", updated.id], updated);
       void queryClient.invalidateQueries({ queryKey: ["image-sessions"] });
-      const retriedTask = updated.generation_tasks.find((task) => task.id === input.taskId);
+      const retriedTask = updated.generation_tasks.find((task) => task.retry_of_task_id === input.taskId) ?? updated.generation_tasks.find((task) => task.id === input.taskId);
       if (retriedTask) {
         setSelectedTaskPlaceholderId(selectImageGenerationTaskNextPlaceholderId(retriedTask));
         setSelectedGeneratedAssetId(null);
@@ -639,7 +644,7 @@ export function ImageChatPage() {
 
   const cancelGenerationTaskMutation = useMutation({
     mutationFn: (input: { sessionId: string; taskId: string }) =>
-      api.cancelImageSessionGenerationTask(input.sessionId, input.taskId),
+      api.cancelImageSessionGenerationTask(input.sessionId, input.taskId, imageSession?.generation_tasks.find((task) => task.id === input.taskId)?.row_version),
     onSuccess: (updated) => {
       queryClient.setQueryData(["image-session", updated.id], updated);
       void queryClient.invalidateQueries({ queryKey: ["image-session-status", updated.id] });
@@ -990,6 +995,12 @@ export function ImageChatPage() {
         onLogout={() => logoutMutation.mutate()}
       />
 
+      <ExecutionIntentRecovery error={generateMutation.error ?? retryGenerationTaskMutation.error ?? cancelGenerationTaskMutation.error} onRecovered={async () => {
+        generateMutation.reset(); retryGenerationTaskMutation.reset(); cancelGenerationTaskMutation.reset();
+        setErrorMessage(""); await queryClient.invalidateQueries({ queryKey: ["image-session", selectedSessionId] });
+      }} />
+      <ExecutionHistoryPanel operations={imageSession?.generation_tasks.flatMap((task) => task.execution ? [task.execution] : []) ?? []} pending={executionActions.isPending} error={executionActions.error}
+        onAction={(operation, action, acknowledge) => executionActions.mutate({ operation, action, acknowledge })} />
       <main
         className="flex min-h-0 flex-1 flex-col pb-[calc(8.5rem+env(safe-area-inset-bottom))] lg:flex-row lg:overflow-hidden lg:pb-0"
         onPointerDown={handleMobileEdgeSwipeStart}

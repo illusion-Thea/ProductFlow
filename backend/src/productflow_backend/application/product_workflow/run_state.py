@@ -246,7 +246,7 @@ def mark_workflow_run_failed(
     session.commit()
 
 
-def mark_workflow_run_cancelled(session: Session, *, run_id: str) -> None:
+def mark_workflow_run_cancelled(session: Session, *, run_id: str, commit: bool = True) -> None:
     persisted_run = session.get(WorkflowRun, run_id)
     if persisted_run is None:
         return
@@ -275,4 +275,5 @@ def mark_workflow_run_cancelled(session: Session, *, run_id: str) -> None:
     persisted_run.failure_reason = WORKFLOW_CANCELLED_REASON
     persisted_run.finished_at = now
     persisted_run.workflow.updated_at = now
-    session.commit()
+    if commit:
+        session.commit()

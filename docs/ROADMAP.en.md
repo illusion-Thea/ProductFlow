@@ -6,7 +6,7 @@ This roadmap describes the evolution direction of the open-source self-hosted ve
 
 ## Current Stage: Open-Source Self-Hosted and Runnable
 
-Completed baseline capabilities:
+Previously documented baseline capabilities (this documentation merge does not revalidate them; unchecked items without reusable evidence remain pending verification and do not establish garment-extension acceptance):
 
 - FastAPI backend, React/Vite frontend, PostgreSQL, Redis, and Dramatiq worker.
 - Single-admin login and private workspace.
@@ -30,6 +30,22 @@ Completed baseline capabilities:
 - Mobile iterative image page adaptation: main view, session drawer, narrow history drawer, generation-settings bottom sheet, and bottom quick actions are organized for small screens.
 - One-command Docker Compose self-hosting path: `docker compose up -d --build` starts PostgreSQL, Redis, backend API, Dramatiq worker, and the Web static site; `just release` now uses the Compose production update and health-check flow.
 - Basic open-source files, MIT License, contribution/security guides, and issue/PR templates.
+
+## Garment Model-Detail-Image Extension Roadmap
+
+This is a planning overview, not a completion claim. See [DEVELOPMENT](./garment/DEVELOPMENT.md) for dependencies, scope, and release gates, [the garment PRD](./garment/PRD.md) for product behavior and acceptance, and [the technical design](./garment/TECH_DESIGN.md) for implementation contracts. The extension body is maintained in Chinese. Actual progress stays in existing GitHub/Trellis task records; this table does not maintain a second status list.
+
+| Phase | Planned focus |
+| --- | --- |
+| M0 | Inspect the repository and existing evidence; identify contracts, gaps, and parameters to freeze |
+| M1 | Minimal prototype engineering: ten-slot mapping, layered composition, text/mask editing, request ledger, and quota control |
+| M2 | Controlled real prototype within one experiment, producing evidence for all four productization gates |
+| M3 | Production business flow, named accounts, team authorization, concurrency, and audit |
+| M4 | Compatible MinIO migration, downloads and lifecycle, reference matching, and three output specifications |
+| M5 | Complete P0 MVP acceptance within FR01-FR14, including measured mixed operation by at least 20 users |
+| M6 | FR15-FR16 production isolation, canary rollout, manual activation, compatible rollback, and off-host recovery |
+
+Named accounts, team collaboration permissions, private MinIO, and file lifecycle are P0 targets for this extension's MVP; the generic roadmap's long-term priority does not apply to them. FR04 outfit presets are P1, FR14 reference matching remains P0, and F01/F02/F03 are deferred. The development entry point and garment PRD own sequencing and detailed acceptance. Other generic roadmap plans remain in place.
 
 ## Near-Term Priorities
 
@@ -85,8 +101,8 @@ Completed baseline capabilities:
 ## Long-Term Exploration
 
 - Video scripts, voiceover, subtitles, and template rendering.
-- Multi-member collaboration and permission model.
-- Object storage adapter layer.
+- Multi-member collaboration and permission model (generic-product exploration; P0 in the garment MVP above).
+- Object storage adapter layer (generic-product exploration; private MinIO and lifecycle are P0 in the garment MVP).
 - Released container images, Helm chart, or other production orchestration packages. The repository already includes the Docker Compose self-hosting path, but no hosted image or Helm chart is published.
 - Controlled integration with external stores/ad platforms.
 

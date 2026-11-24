@@ -13,6 +13,8 @@ from productflow_backend.config import get_settings
 def get_engine():
     settings = get_settings()
     connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+    if settings.prototype_execution_enabled and settings.database_url.startswith("postgresql"):
+        connect_args["options"] = "-c lock_timeout=3000 -c statement_timeout=15000"
     return create_engine(
         settings.database_url,
         future=True,

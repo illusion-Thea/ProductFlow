@@ -1,3 +1,4 @@
+import { executionNeedsPolling } from "../../lib/executionPolling";
 import type {
   ImageSessionDetail,
   ImageSessionGenerationTask,
@@ -16,7 +17,7 @@ export interface ImageRoundGroup {
   rounds: ImageSessionRound[];
 }
 
-export type ImageHistoryPlaceholderStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type ImageHistoryPlaceholderStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 
 export interface ImageHistoryRoundCandidate {
   id: string;
@@ -198,6 +199,7 @@ function getPlaceholderCandidateStatus(
   task: ImageSessionGenerationTask,
   candidateIndex: number,
 ): ImageHistoryPlaceholderStatus {
+  if (task.status === "unknown") return "unknown";
   if (task.status === "failed") {
     return "failed";
   }
@@ -556,7 +558,7 @@ export function effectiveImageGenerationSubmitCount(
 }
 
 export function isImageSessionGenerationTaskActive(task: ImageSessionGenerationTask): boolean {
-  return task.status === "queued" || task.status === "running";
+  return task.status === "queued" || task.status === "running" || executionNeedsPolling(task.execution);
 }
 
 export function isImageSessionGenerationTaskRetryable(task: ImageSessionGenerationTask): boolean {

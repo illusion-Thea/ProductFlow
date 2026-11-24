@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,9 @@ def configured_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("SESSION_COOKIE_SECURE", "false")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    if not os.environ.get("M101_MANIFEST"):
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("PROTOTYPE_EXECUTION_ENABLED", "false")
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     monkeypatch.setenv("LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("TEXT_PROVIDER_KIND", "mock")

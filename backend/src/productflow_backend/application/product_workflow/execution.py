@@ -61,7 +61,7 @@ from productflow_backend.domain.enums import (
     WorkflowNodeType,
     WorkflowRunStatus,
 )
-from productflow_backend.domain.errors import BusinessError, BusinessValidationError, NotFoundError
+from productflow_backend.domain.errors import BusinessValidationError, NotFoundError
 from productflow_backend.domain.workflow_rules import (
     WorkflowRuleEdge,
     WorkflowRuleNode,
@@ -84,7 +84,7 @@ from productflow_backend.infrastructure.storage import LocalStorage
 
 logger = logging.getLogger(__name__)
 
-COPY_PROVIDER_CONTRACT_MAX_ATTEMPTS = 2
+COPY_PROVIDER_CONTRACT_MAX_ATTEMPTS = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +379,8 @@ def execute_product_workflow_run(
     *,
     dependencies: WorkflowExecutionDependencies | None = None,
 ) -> None:
+    from productflow_backend.application.execution.quarantine import reject_legacy_dispatch
+    reject_legacy_dispatch()
     session_factory = get_session_factory()
     session = session_factory()
     try:
@@ -411,6 +413,8 @@ def execute_product_workflow_node_run(
     *,
     dependencies: WorkflowExecutionDependencies | None = None,
 ) -> None:
+    from productflow_backend.application.execution.quarantine import reject_legacy_dispatch
+    reject_legacy_dispatch()
     session_factory = get_session_factory()
     session = session_factory()
     try:
@@ -1064,19 +1068,5 @@ def _call_text_provider_with_payload_retry(
     operation: str,
     node_id: str | None,
 ) -> tuple[Any, str]:
-    for attempt in range(1, COPY_PROVIDER_CONTRACT_MAX_ATTEMPTS + 1):
-        try:
-            return call()
-        except (ValidationError, ValueError) as exc:
-            if isinstance(exc, BusinessError) or attempt >= COPY_PROVIDER_CONTRACT_MAX_ATTEMPTS:
-                raise
-            logger.warning(
-                "文案 provider 返回字段不匹配，准备重试: operation=%s node_id=%s attempt=%s max_attempts=%s "
-                "error_class=%s",
-                operation,
-                node_id,
-                attempt,
-                COPY_PROVIDER_CONTRACT_MAX_ATTEMPTS,
-                exc.__class__.__name__,
-            )
-    raise RuntimeError("unreachable text provider retry state")
+    # Invalid structured output consumed its request; retry requires a new accepted operation.
+    return call()

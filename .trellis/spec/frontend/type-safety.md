@@ -163,6 +163,10 @@ return api.createProduct({
 
 ### Scenario: Settings migration API typing
 
+> **Garment target:** Full settings, provider profiles/bindings, and import/export require current system-management
+> role plus independent settings unlock. Read/preview/export responses must not return stored raw keys. The signatures
+> below describe existing DTOs; change input/output DTOs, backend schemas, consumers, and tests together during implementation.
+
 #### 1. Scope / Trigger
 - Trigger: changes to settings export/import API methods, SettingsPage import/export UI, or backend
   `SettingsExportDocument` / `SettingsImportPreviewResponse` / `SettingsImportCommitResponse` schemas.
@@ -171,21 +175,22 @@ return api.createProduct({
 
 #### 2. Signatures
 - API methods:
-  - `api.exportSettings(): Promise<SettingsExportDocument>`
-  - `api.previewSettingsImport(payload: SettingsExportDocument): Promise<SettingsImportPreview>`
-  - `api.importSettings(payload: SettingsExportDocument): Promise<SettingsImportCommitResponse>`
+  - `api.exportSettings(): Promise<SettingsExportPayload>`
+  - `api.previewSettingsImport(payload: SettingsExportPayload): Promise<SettingsImportPreviewResponse>`
+  - `api.importSettings(payload: SettingsExportPayload): Promise<SettingsImportCommitResponse>`
 - Frontend DTOs live in `web/src/lib/types.ts` and mirror backend field names:
-  - `SettingsExportDocument`
+  - `SettingsExportPayload`
   - `SettingsExportMetadata`
-  - `SettingsProviderProfileExport`
-  - `SettingsProviderBindingExport`
-  - `SettingsImportPreview`
+  - `SettingsExportProviderProfile`
+  - `SettingsExportProviderBinding`
+  - `SettingsImportPreviewResponse`
   - `SettingsImportCommitResponse`
 
 #### 3. Contracts
 - `runtime_config` is a map of config key to JSON scalar/list values from the backend export.
-- `provider_profiles` may include `api_key`; SettingsPage must treat exported files as sensitive and show confirmation
-  copy before download.
+- The legacy `provider_profiles` export contains `api_key`; the extension must exclude stored raw keys from reads,
+  previews, and exports, even for management. Authorized credential input and existing-secret output are separate
+  contracts. A sanitized export must not make the UI claim that a clean target already has usable credentials.
 - `provider_bindings` references imported provider profile ids for non-mock bindings.
 - Import preview response fields are flat DTO fields such as `runtime_config_count`,
   `provider_profile_count`, `provider_binding_count`, `includes_api_keys`, and
@@ -199,10 +204,13 @@ return api.createProduct({
 - API 400 from preview/commit -> show `ApiError.detail`.
 - User cancels export/import confirmation -> do not call the API.
 - Successful import -> invalidate settings/runtime/session queries so UI reflects the imported values.
+- Missing current management role or independent settings unlock -> deny full settings/provider/import-export access;
+  ordinary business users retain separate sanitized runtime capability/specification reads.
 
 #### 5. Good/Base/Bad Cases
-- Good: export downloads exactly the typed backend payload, then importing that JSON previews the same counts.
-- Good: preview with `includes_api_keys=true` shows sensitive-file warning before commit.
+- Good: export downloads the sanitized typed payload; import previews counts and explains missing target credentials.
+- Good: a supplied import containing credentials reports `includes_api_keys=true` and asks for confirmation without
+  echoing keys in its preview or subsequent export.
 - Base: import file contains `mock` provider bindings and no provider API keys.
 - Bad: frontend reads `preview.metadata.summary` when backend returns flat preview fields.
 - Bad: converting DTO fields to camelCase in `types.ts` without an explicit API mapping layer.
@@ -210,6 +218,8 @@ return api.createProduct({
 #### 6. Tests Required
 - SettingsPage tests for export confirmation and generated JSON download path.
 - SettingsPage tests for import preview summary, API-key warning, commit confirmation, and query invalidation.
+- Extension tests for management plus unlock, ordinary roles with a token, role revocation, sanitized output payloads,
+  and target credential readiness; update legacy raw-key export expectations with the implementation.
 - `pnpm --dir web build` after any settings migration DTO change.
 
 #### 7. Wrong vs Correct
@@ -284,3 +294,21 @@ setError(mutationError instanceof Error ? mutationError.message : "创建商品�
 - Renaming API fields to camelCase only on the frontend.
 - Type assertions that hide missing null checks; prefer `enabled: Boolean(id)` for queries and explicit null rendering.
 - Adding new backend response fields without updating `web/src/lib/types.ts` and the relevant UI.
+
+## M1-01 execution DTOs and requests
+
+### 1. Scope
+`ExecutionSummary`, `PrototypeTask`, `PrototypeStatus`, `PrototypeDraft`, and `ContentLanguage` live in `lib/types.ts`, aligned with backend presentation schemas. Legacy workflow/session responses remain their original envelopes with additive execution summaries.
+### 2. Signatures
+`api.executeAction(operation, action, acknowledge)` uses the operation version except legacy retry, which requires the root version. `controlledWrite<T>(path, scope, payload, method, recoveryKey?)` owns identity validation and idempotency; recoveryKey fences an explicit replay to the existing intent.
+### 3. Contracts
+Keep null cost/wait/recovery values explicit. Unknown is a technical status, separate from business state. API requests preserve cookie credentials, JSON Content-Type and caller Idempotency-Key; FormData must retain browser boundary handling. Environment identity must match before every controlled write.
+`PrototypeStatus.operations_partial` marks a lightweight operation subset, not a replacement for full detail history. Workflow status merge retains additive `row_version` and node `execution` fields used by cancellation, retry and unknown polling.
+### 4. Error matrix
+`executionErrorMessage` localizes known conflict, quota, authorization, uncertainty, input and isolation errors. Never render raw FastAPI detail arrays or classify unknown as zero-cost failure.
+### 5. Cases
+Good: spreading RequestInit before merged headers retains JSON and idempotency headers. Base: same-key lookup returns the committed DTO after reload. Bad: spreading init last silently overwrites Content-Type and causes valid JSON to fail with 422.
+### 6. Required evidence
+`executionApi.test.ts` asserts exact request headers and one POST after a lost response; strict build verifies new enum consumers. API integration asserts missing key/version 422 instead of globally adding them in test clients.
+### 7. Wrong versus correct
+Wrong: `{ headers: defaults, ...init }`. Correct: `{ ...init, credentials: 'include', headers: { ...jsonHeaders, ...init?.headers } }`.

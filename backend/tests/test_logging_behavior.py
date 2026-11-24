@@ -13,6 +13,17 @@ from fastapi.testclient import TestClient
 from productflow_backend.config import get_settings
 
 
+def test_execution_log_only_accepts_correlation_fields(caplog):
+    from productflow_backend.infrastructure.logging import log_execution_event
+
+    with caplog.at_level(logging.INFO):
+        log_execution_event("stub_transport_entered", stage_id="stage-fixture", model_call_id="call-fixture")
+        with pytest.raises(ValueError):
+            log_execution_event("unsafe", api_key="must-not-appear")
+    assert "stage_id=stage-fixture" in caplog.text and "model_call_id=call-fixture" in caplog.text
+    assert "must-not-appear" not in caplog.text
+
+
 @pytest.fixture(autouse=True)
 def _clean_log_context() -> Iterator[None]:
     from productflow_backend.infrastructure.logging import (
@@ -73,7 +84,8 @@ def test_default_log_dir_uses_backend_storage_when_running_from_backend(
     monkeypatch.chdir(backend_dir)
     get_settings.cache_clear()
 
-    settings = get_settings()
+    from productflow_backend.config import Settings
+    settings = Settings(_env_file=None)
 
     assert settings.log_dir == backend_dir / "storage" / "logs"
     assert get_log_file_path(settings) == backend_dir / "storage" / "logs" / "productflow.log"

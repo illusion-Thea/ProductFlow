@@ -16,6 +16,11 @@ from productflow_backend.infrastructure.db.models import (
     ImageSessionRound,
 )
 from productflow_backend.presentation.image_variants import build_image_urls
+from productflow_backend.presentation.schemas.execution_requests import (
+    ExecutionSummary,
+    execution_has_open_wait,
+    execution_summary,
+)
 from productflow_backend.presentation.schemas.validators import validate_image_generation_size
 
 
@@ -53,6 +58,9 @@ class ImageSessionRoundResponse(BaseModel):
 
 
 class ImageSessionGenerationTaskResponse(BaseModel):
+    row_version: int = 1
+    retry_of_task_id: str | None = None
+    execution: ExecutionSummary | None = None
     id: str
     session_id: str
     status: JobStatus
@@ -265,8 +273,11 @@ def serialize_image_session_generation_task(
     queue_overview = getattr(queue_metadata, "overview", None)
     return ImageSessionGenerationTaskResponse(
         id=task.id,
+        execution=execution_summary(task),
         session_id=task.session_id,
         status=task.status,
+        row_version=task.row_version,
+        retry_of_task_id=task.retry_of_task_id,
         prompt=task.prompt,
         size=task.size,
         base_asset_id=task.base_asset_id,
@@ -350,7 +361,8 @@ def serialize_image_session_status(snapshot: ImageSessionStatusSnapshot) -> Imag
         latest_round_id=snapshot.latest_round_id,
         latest_generation_group_id=snapshot.latest_generation_group_id,
         has_active_generation_task=any(
-            IMAGE_SESSION_GENERATION_TASK_CONTRACT.is_active(item.status) for item in generation_tasks
+            IMAGE_SESSION_GENERATION_TASK_CONTRACT.is_active(item.status) or execution_has_open_wait(item)
+            for item in generation_tasks
         ),
         generation_tasks=[
             serialize_image_session_generation_task(

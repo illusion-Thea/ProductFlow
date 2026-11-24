@@ -1,18 +1,41 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_LOCALE,
   LOCALES,
   LOCALE_LABEL_KEYS,
+  LOCALE_STORAGE_KEY,
   interpolate,
   resolveLocale,
   translate,
   translations,
 } from "./i18n";
+import { PreferencesProvider, usePreferences } from "./preferences";
 import { resolveTheme, resolveThemePreference } from "./theme";
 
+describe("Chinese workbench", () => {
+  it.each(["en-US", "ja-JP", "vi-VN", null])("ignores legacy UI locale %s while preserving theme", (savedLocale) => {
+    vi.stubGlobal("window", {
+      localStorage: { getItem: (key: string) => key === LOCALE_STORAGE_KEY ? savedLocale : "dark" },
+    });
+    function Probe() {
+      const { locale, resolvedTheme, t } = usePreferences();
+      return createElement("span", { lang: locale, "data-theme": resolvedTheme }, t("nav.products"));
+    }
+    try {
+      expect(renderToStaticMarkup(createElement(PreferencesProvider, { children: createElement(Probe) }))).toBe(
+        '<span lang="zh-CN" data-theme="dark">商品/工作台</span>',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("i18n helpers", () => {
-  it("resolves supported locales and falls back to Chinese", () => {
+  it("recognizes legacy translation locales and falls back to Chinese", () => {
     expect(resolveLocale("en-US")).toBe("en-US");
     expect(resolveLocale("zh-CN")).toBe("zh-CN");
     expect(resolveLocale("vi-VN")).toBe("vi-VN");
@@ -20,7 +43,7 @@ describe("i18n helpers", () => {
     expect(resolveLocale(null)).toBe(DEFAULT_LOCALE);
   });
 
-  it("keeps locale selector metadata aligned with supported locales", () => {
+  it("keeps retained translation metadata aligned with its dictionaries", () => {
     const defaultKeys = Object.keys(translations[DEFAULT_LOCALE]).sort();
 
     expect(Object.keys(LOCALE_LABEL_KEYS).sort()).toEqual([...LOCALES].sort());

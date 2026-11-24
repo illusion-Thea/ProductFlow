@@ -16,6 +16,7 @@ import {
 } from "./utils";
 
 const RUN_STATUS_CLASS_NAMES: Record<WorkflowRunStatus, string> = {
+  unknown: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-100",
   running: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/35 dark:bg-blue-500/12 dark:text-blue-200",
   succeeded:
     "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-500/12 dark:text-emerald-200",
@@ -24,6 +25,7 @@ const RUN_STATUS_CLASS_NAMES: Record<WorkflowRunStatus, string> = {
 };
 
 const RUN_STATUS_DOT_CLASS_NAMES: Record<WorkflowRunStatus, string> = {
+  unknown: "bg-amber-500 shadow-amber-500/30",
   running: "bg-blue-500 shadow-blue-500/30",
   succeeded: "bg-emerald-500 shadow-emerald-500/30",
   failed: "bg-red-500 shadow-red-500/30",

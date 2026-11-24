@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -33,6 +33,7 @@ from productflow_backend.infrastructure.provider_config import (
     ResolvedImageProviderConfig,
     resolve_image_provider_config,
 )
+from productflow_backend.infrastructure.provider_transport import single_request_http_client
 
 RESPONSES_UNSUPPORTED_IMAGE_TOOL_FIELD_KEYS = {"n"}
 IMAGE_TOOL_OPTIONAL_FIELD_KEYS = tuple(
@@ -256,7 +257,9 @@ class OpenAIResponsesImageClient:
         if previous_response_id:
             request_payload["previous_response_id"] = previous_response_id
 
-        client_kwargs: dict[str, Any] = {"api_key": self.api_key}
+        client_kwargs: dict[str, Any] = {
+            "api_key": self.api_key, "max_retries": 0, "http_client": single_request_http_client(),
+        }
         if self.base_url:
             client_kwargs["base_url"] = self.base_url
         fallback_used = False
@@ -274,7 +277,7 @@ class OpenAIResponsesImageClient:
             raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
 
         try:
-            response, request_payload, fallback_used = self._create_response_with_fallback(
+            response, request_payload, fallback_used = self._create_response_once(
                 client=client,
                 request_payload=request_payload,
                 requested_tool=tool,
@@ -354,7 +357,7 @@ class OpenAIResponsesImageClient:
             provider_output_json=output_json,
         )
 
-    def _create_response_with_fallback(
+    def _create_response_once(
         self,
         *,
         client: Any,
@@ -363,45 +366,8 @@ class OpenAIResponsesImageClient:
         size: str,
         task_context: dict[str, Any],
     ) -> tuple[Any, dict[str, Any], bool]:
-        fallback_used = False
-        current_payload = request_payload
-        while True:
-            try:
-                return client.responses.create(**current_payload), current_payload, fallback_used
-            except Exception as exc:  # noqa: BLE001
-                if current_payload.get("background") is True and self._is_background_unsupported_error(exc):
-                    self._log_provider_exception(
-                        "Responses 图片供应商不支持 background，回退同步请求",
-                        exc=exc,
-                        phase="create_background_fallback",
-                        request_payload=current_payload,
-                        task_context=task_context,
-                        level=logging.INFO,
-                    )
-                    current_payload = dict(current_payload)
-                    current_payload.pop("background", None)
-                    continue
-                if self._has_optional_tool_fields(current_payload["tools"][0]):
-                    self._log_provider_exception(
-                        "Responses 图片供应商拒绝高级 tool 字段，回退基础 tool",
-                        exc=exc,
-                        phase="create_tool_fallback",
-                        request_payload=current_payload,
-                        task_context=task_context,
-                        level=logging.INFO,
-                    )
-                    current_payload = dict(current_payload)
-                    current_payload["tools"] = [self._build_image_generation_tool(size, include_optional=False)]
-                    fallback_used = current_payload["tools"][0] != requested_tool
-                    continue
-                self._log_provider_exception(
-                    "Responses 图片供应商创建请求失败",
-                    exc=exc,
-                    phase="create",
-                    request_payload=current_payload,
-                    task_context=task_context,
-                )
-                raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
+        # A received error cannot authorize a changed second generation request.
+        return client.responses.create(**request_payload), request_payload, False
 
     def _is_background_unsupported_error(self, exc: Exception) -> bool:
         message = str(exc).lower()
@@ -430,7 +396,10 @@ class OpenAIResponsesImageClient:
         self._emit_response_progress(response, progress_callback)
         response_id = str(_get_value(response, "id", "") or "")
         status = str(_get_value(response, "status", "") or "").lower()
+        deadline = monotonic() + get_runtime_settings().workflow_image_generation_provider_timeout_seconds
         while response_id and status in RESPONSES_IN_PROGRESS_STATUSES and hasattr(client.responses, "retrieve"):
+            if monotonic() >= deadline:
+                raise TimeoutError("existing_response_lookup_deadline_exceeded")
             sleep(RESPONSES_BACKGROUND_POLL_INTERVAL_SECONDS)
             try:
                 response = client.responses.retrieve(response_id)

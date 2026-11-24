@@ -258,6 +258,8 @@ def delete_reference_image(
         raise BusinessValidationError("只能删除商品参考图")
 
     product_id = asset.product_id
+    from productflow_backend.application.execution.protection import protect_product
+    protect_product(session, product_id)
     storage_path = asset.storage_path
     storage = storage or LocalStorage()
     product = _get_product_or_raise(session, product_id)
@@ -300,6 +302,8 @@ def delete_product(
     product_id: str,
     storage: LocalStorage | None = None,
 ) -> None:
+    from productflow_backend.application.execution.protection import protect_product
+    protect_product(session, product_id)
     product = _get_product_or_raise(session, product_id)
     active_workflow_run = session.scalar(
         select(WorkflowRun)

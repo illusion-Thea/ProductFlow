@@ -115,6 +115,16 @@ function workflowRunStatus(overrides: Partial<WorkflowRunStatusSummary>): Workfl
 }
 
 describe("product-detail utils", () => {
+  it("polls unknown node executions until their request wait is closed", () => {
+    const run = workflowRun({ status: "unknown", node_runs: [{ id: "nr", workflow_run_id: "run-1", node_id: "node-1",
+      status: "unknown", output_json: null, copy_set_id: null, poster_variant_id: null, failure_reason: null,
+      started_at: "2026-11-24T00:00:00Z", finished_at: null, execution: { operation_id: "op", attempt_id: "a", row_version: 1,
+        root_row_version: 1, source_kind: "workflow", source_id: "nr", state: "unknown", wait_closed_at: null,
+        status_url: "/status", action_url: "/action", retry_url: "/retry", current_recovery: null } }] });
+    expect(hasActiveWorkflow(workflowWith({ runs: [run] }))).toBe(true);
+    run.node_runs[0].execution!.wait_closed_at = "2026-11-24T00:00:00Z";
+    expect(hasActiveWorkflow(workflowWith({ runs: [run] }))).toBe(false);
+  });
   it("reads string arrays from output_json before config_json and filters non-strings", () => {
     const node: WorkflowNode = {
       ...baseNode,
@@ -549,6 +559,7 @@ describe("product-detail utils", () => {
       runs: [
         workflowRunStatus({
           status: "failed",
+          row_version: 7,
           started_at: "2026-04-26T00:01:00Z",
           finished_at: "2026-04-26T00:02:00Z",
           failure_reason: "生成失败",
@@ -580,6 +591,7 @@ describe("product-detail utils", () => {
     expect(merged.nodes[0].non_retryable_reason).toBe("生成失败");
     expect(merged.nodes[0].retry_hint).toBe("revise_input");
     expect(merged.runs[0].status).toBe("failed");
+    expect(merged.runs[0].row_version).toBe(7);
     expect(merged.runs[0].node_runs[0].output_json).toEqual({ artifact: "keep output" });
     expect(merged.runs[0].node_runs[0].copy_set_id).toBe("copy-1");
   });

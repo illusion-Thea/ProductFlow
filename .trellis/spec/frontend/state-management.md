@@ -11,14 +11,31 @@ ProductFlow uses four state categories:
 1. Server state: TanStack Query in pages and `AppRoutes()`.
 2. Local UI/form state: React `useState`, `useMemo`, and `useEffect` inside page components.
 3. URL state: React Router params and navigation.
-4. Durable browser-local UI preferences: global locale/theme mode in `PreferencesProvider` plus narrowly scoped
+4. Durable browser-local UI preferences: theme mode in `PreferencesProvider` plus narrowly scoped
    page-owned workbench preferences.
+
+The current workbench UI is fixed to Chinese (2026-11-24 user confirmation). Do not read legacy
+`productflow.locale` to select a UI language. `PreferencesProvider` writes `zh-CN` and sets the document language,
+while preserving the independent theme preference. Content-language drafts and accepted previews remain server records.
 
 There is no Redux, Zustand, Jotai, custom event bus, or durable browser-local onboarding state.
 
 ---
 
 ## Server State
+
+> **Garment extension target:** The shared-login fields below describe the existing app. Named identity, one active team,
+> current membership, and server-authorized resource access supersede shared-gate bypass for the extension. System
+> management does not grant ordinary editing of others' personal tasks. Audited handoff applies to personal/team tasks
+> and independent image sessions: personal editing and scope-change permission follow the current responsible user;
+> team shared editing remains unchanged and original creator identity remains historical. Products/free canvases are
+> team shared; formal tasks and sessions use their own scope. Revocation blocks new submissions/access, while accepted
+> operations continue unless explicitly cancelled by a currently authorized user.
+
+For garment full settings/provider/import-export queries, require the current management role and independent settings
+unlock; neither is sufficient alone. Business pages may load necessary sanitized runtime capabilities/specifications.
+Do not cache returned raw credentials or treat an old unlock flag as authorization after a role change; settings reads,
+previews, and exports must omit stored raw keys. These are target checks to implement alongside named identity.
 
 Server state is loaded through `web/src/lib/api.ts` and cached by TanStack Query. The `QueryClient` is created once in
 `web/src/App.tsx` with `refetchOnWindowFocus: false`.
@@ -59,6 +76,42 @@ Keep short-lived UI state local to the page that owns the interaction:
 Local state should not duplicate server records unless the user is editing a draft. For example, `SettingsPage.tsx` creates
 `drafts` from fetched config so the user can edit before saving; product details themselves remain in TanStack Query.
 
+For the garment extension, local preview selection, base-image selection, and canvas-node selection do not adopt an
+output. Persist formal composite feedback/current selection and first-round assessment on the server, keeping settled
+snapshots independent of later feedback. Refresh affected queries after feedback, reuse, restore, or handoff; independent
+reuse records do not share feedback/download/retention cache state just because they share bytes. Favorites use the source
+version's state and permissions. See [the garment PRD](../../../docs/garment/PRD.md) and
+[Technical Design Sections 4-6](../../../docs/garment/TECH_DESIGN.md) for the planned contracts.
+
+Copy language is business state, with Chinese as default and explicit Chinese/Malay/Indonesian/Filipino choices.
+Keep the selected-language preview and its confirmation in server version records; selector drafts may be local.
+Opening the Chinese workbench or changing market does not translate or replace confirmed copy. Require a generated preview in the chosen language
+and confirmation before composition; requests to generate new text are distinct from zero-model local text edits.
+
+Show server recovery status and finite deadlines. Expiry pauses automatic local recovery for an explicit continue/end
+decision, without automatically settling first-round failure. A late result after a completed task closed its wait
+stays in history and does not optimistically reopen the task; explicit inclusion, late-base composition, and any new
+round require server acceptance. On old-release admission closure, keep new edits as drafts until a new round is confirmed.
+
+Layered reuse must return target-owned layer/dependency records, so edit/restore actions use target permissions and
+version IDs even when file bytes are shared. Whole-product/task/session deletion archives that root, including products
+without formal tasks. Refresh list/archive/detail visibility without deleting linked roots or asset cache records;
+their independent permissions, availability, and retention still apply. Keep accepted-work progress/results accessible.
+Archived roots permit authorized record management, cancellation, and per-image deletion/restoration, but new content,
+generation, retry, or explicit local recovery requires unarchive. Preserve drafts on rejection; unarchive does not submit
+them, restore images, reset retention, or revive cancelled tasks. Root archive is separate server state from task status.
+
+Display incomplete first-round progress when cancellation leaves original bases without composites or definite original
+failure; do not derive final 7/10 from model success counts. Withdrawing an already-generated undecided revision uses a
+server mutation to mark it discarded and retain prior selection/history; do not locally hide it while feedback remains
+undecided. Refresh candidate feedback, selection, and completion state together. Unsubmitted drafts may be removed locally.
+
+Keep restoration confirmation and pending editor drafts as local UI state. On confirmation, call the controlled restore
+operation from the current edit entry; only successful restoration plus current input availability enables the edit.
+On refusal show “不恢复所需图片，当前成品图无法修改”. Retain drafts on failure and expose its cause; do not require recycle-bin
+navigation or optimistically mark a dependency live. Metadata feedback/deselection/issue closure does not require file
+restoration. Implement and verify these behaviors when the corresponding APIs become available.
+
 ## URL and Navigation State
 
 React Router owns route selection and route params:
@@ -77,7 +130,7 @@ Do not introduce a global store just to track current page or product ID; use th
 Global app preferences live in `PreferencesProvider`:
 
 - Provider: `PreferencesProvider` in `web/src/lib/preferences.tsx`, mounted once in `App.tsx` inside `BrowserRouter`.
-- Locale storage key: `productflow.locale`; default locale is `zh-CN`.
+- Legacy locale storage key: `productflow.locale`; the provider writes fixed `zh-CN` and never reads it as a language choice.
 - Theme storage key: `productflow.theme`; default preference is `system`.
 - Supported theme preferences are `light`, `dark`, and `system`; `system` resolves from `prefers-color-scheme`.
 - The provider updates `document.documentElement.lang`, root `class="dark"` when the resolved theme is dark, and root
@@ -85,8 +138,8 @@ Global app preferences live in `PreferencesProvider`:
 - Use `useI18n()` or `usePreferences()` in components that need locale/theme values; do not create page-local duplicate
   locale/theme state.
 
-Locale and theme are not server records. Do not store them in TanStack Query, add backend settings for them, or persist
-them with auth/session state unless a future product requirement explicitly changes that boundary.
+UI language is fixed and theme is a local preference. Neither is a server record. Do not store them in TanStack Query,
+add backend settings for them, or persist them with auth/session state unless a future product requirement changes that boundary.
 
 ProductDetail owns a small set of durable workbench-local browser preferences because they are specific to that page's
 canvas ergonomics rather than global app chrome:
@@ -153,3 +206,21 @@ Keep error display local unless multiple pages need a shared notification system
 - Reintroducing durable browser-local onboarding, tour, help, or tutorial state without a new approved product requirement.
 - Adding new durable local preferences outside `PreferencesProvider` or a documented page-owned feature boundary without
   updating this spec and focused helper tests when parsing/clamping behavior is non-trivial.
+
+## M1-01 prototype and execution state
+
+### 1. Scope
+The verification-only product panel uses `usePrototypeExecution`; it does not replace the existing canvas or introduce a global state store.
+### 2. Keys and signatures
+Query keys are `['prototype-experiments', productId]`, `['prototype-tasks', productId]`, `['prototype-task', taskId]`, and `['prototype-status', taskId]`. `mergePrototypeStatus(task, status)` ignores stale status versions. URL parameter `prototype` identifies the selected task or `new`.
+### 3. Contracts
+Poll lightweight status while work/unknown waits are active; refresh detail when plan/artifact/terminal state changes. Reuse `executionNeedsPolling` for queued/running and unknown with an open wait across prototype, workflow and session views. Preserve `row_version` and execution summaries during merges. Partial prototype status merges changed operations into retained history. Keep drafts and acknowledgement checkboxes local. Display experiment quota from fresh task status when selected. Content language is server draft state and independent of UI locale.
+For unresolved controlled mutations only, sessionStorage retains the environment/resource/action-scoped idempotency key, payload digest and original accepted submission payload. This per-tab recovery record is not general draft persistence; never store credentials or uploaded bytes. Clear it on a definite result. An explicit recovery action replays the original payload/key while retaining newer editor text. An already-resolved recovery callback cannot create another key. Old digest-only records remain fail-closed when the original payload cannot be reconstructed.
+### 4. Error matrix
+409 retains the draft and refreshes server state; 422 renders a localized error. Lost response/503 retains the same key and queries the original intent before comparing newly fetched versions. Recovering a prior committed payload must not report that newer edits were saved or clear them; use `previous_submission_recovered`. `PendingSubmissionError` exposes explicit original-payload replay through `ExecutionIntentRecovery`; completed/stale recovery is fenced by its original key. Unknown retry is disabled until explicit fee acknowledgement; local resume/end are distinct actions.
+### 5. Cases
+Good: reloading after a committed request resolves its original operation. Base: cancel refreshes to a terminal task with unchanged quota. Bad: minting a new key because the refetched row_version changed.
+### 6. Required evidence
+`executionIntent.test.ts`, `executionApi.test.ts` and `prototypeExecution.test.ts` cover digest/replay, HTTP headers, response loss, stale status, partial history and UI-independent content. `scripts/m101_ui_regression.mjs` exercises actual React controls against an isolated API: lost response plus newer draft, reload plus explicit original replay, poll-then-cancel and new run, and unknown polling before/after wait closure for workflows/sessions. Its `--baseline` mode serves reviewed Git frontend bytes without modifying the worktree. Browser checks must also cover local recovery; helper tests cannot replace them.
+### 7. Wrong versus correct
+Wrong: show "base images saved" for any needs_attention state. Correct: use the server issue code and operation records; only `composition_not_implemented` describes the saved-base boundary.

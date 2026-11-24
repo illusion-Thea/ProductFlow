@@ -53,6 +53,7 @@ export function imageRoundSizeLabel(round: ImageSessionRound, t: ImageChatTransl
 }
 
 export function placeholderStatusLabel(candidate: ImageHistoryPlaceholderCandidate, t: ImageChatTranslate) {
+  if (candidate.status === "unknown") return t("execution.unknown");
   const retryMetadata = imageGenerationRetryMetadata(candidate.task);
   if (
     isImageSessionGenerationTaskAutoRetrying(candidate.task) &&
@@ -85,6 +86,7 @@ export function placeholderStatusLabel(candidate: ImageHistoryPlaceholderCandida
 }
 
 export function placeholderStatusClass(candidate: ImageHistoryPlaceholderCandidate) {
+  if (candidate.status === "unknown") return "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-100";
   if (candidate.status === "failed") {
     return "border-red-200 bg-red-50 text-red-700 dark:border-red-400/40 dark:bg-red-500/15 dark:text-red-100";
   }

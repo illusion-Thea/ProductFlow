@@ -6,7 +6,6 @@ import {
   type Locale,
   type TranslationKey,
   type TranslationParams,
-  resolveLocale,
   translate,
 } from "./i18n";
 import {
@@ -23,7 +22,6 @@ export type TranslateFunction = ((key: TranslationKey, params?: TranslationParam
 
 interface PreferencesContextValue {
   locale: Locale;
-  setLocale: (locale: Locale) => void;
   t: TranslateFunction;
   themePreference: ThemePreference;
   setThemePreference: (theme: ThemePreference) => void;
@@ -47,7 +45,9 @@ function getSystemPrefersDark(): boolean {
 }
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(() => resolveLocale(readStorage(LOCALE_STORAGE_KEY)));
+  // Workbench chrome is Chinese; image-copy language belongs to the task draft.
+  // Ignore legacy persisted UI locales so returning users also see Chinese.
+  const locale = DEFAULT_LOCALE;
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() =>
     resolveThemePreference(readStorage(THEME_STORAGE_KEY)),
   );
@@ -82,7 +82,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       t.locale = locale;
       return {
         locale,
-        setLocale: (nextLocale) => setLocaleState(resolveLocale(nextLocale)),
         t,
         themePreference,
         setThemePreference: (nextTheme) => setThemePreferenceState(resolveThemePreference(nextTheme)),
@@ -102,7 +101,6 @@ export function usePreferences(): PreferencesContextValue {
     t.locale = DEFAULT_LOCALE;
     return {
       locale: DEFAULT_LOCALE,
-      setLocale: () => undefined,
       t,
       themePreference: DEFAULT_THEME_PREFERENCE,
       setThemePreference: () => undefined,
@@ -113,6 +111,6 @@ export function usePreferences(): PreferencesContextValue {
 }
 
 export function useI18n() {
-  const { locale, setLocale, t } = usePreferences();
-  return { locale, setLocale, t };
+  const { locale, t } = usePreferences();
+  return { locale, t };
 }

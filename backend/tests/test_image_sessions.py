@@ -645,7 +645,7 @@ def test_image_session_manual_cancel_marks_active_task_cancelled_and_worker_noop
     assert task.is_retryable is False
 
 
-def test_image_session_generation_cancel_after_file_save_does_not_persist_round_or_asset(
+def test_unmanaged_compatibility_cancel_after_file_save_omits_live_round_and_asset(
     configured_env: Path,
     db_session,
     monkeypatch: pytest.MonkeyPatch,
@@ -950,7 +950,7 @@ def test_image_session_manual_retry_enqueue_failure_keeps_task_retryable(
     assert task.is_retryable is True
 
 
-def test_image_session_worker_auto_retry_caps_and_uses_generic_safe_reason(
+def test_image_session_worker_single_attempt_uses_generic_safe_reason(
     configured_env: Path,
     db_session,
     monkeypatch: pytest.MonkeyPatch,
@@ -995,13 +995,12 @@ def test_image_session_worker_auto_retry_caps_and_uses_generic_safe_reason(
     assert calls["count"] == IMAGE_SESSION_GENERATION_MAX_ATTEMPTS
 
 
-def test_image_session_worker_auto_retry_exposes_last_failure_metadata(
+def test_image_session_worker_no_auto_retry_preserves_failure_metadata(
     configured_env: Path,
     db_session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from productflow_backend.application.image_sessions import (
-        IMAGE_SESSION_GENERATION_MAX_ATTEMPTS,
         create_image_session,
         create_image_session_generation_task,
         execute_image_session_generation_task,
@@ -1035,20 +1034,20 @@ def test_image_session_worker_auto_retry_exposes_last_failure_metadata(
     db_session.expire_all()
     task = db_session.get(ImageSessionGenerationTask, result.task.id)
     assert task is not None
-    assert task.status == JobStatus.QUEUED
-    assert task.failure_reason is None
-    assert task.progress_phase == "auto_retry_queued"
+    assert task.status == JobStatus.FAILED
+    assert task.failure_reason == "图片供应商请求超时，请稍后重试"
+    assert task.progress_phase == "failed"
     assert task.progress_metadata == {
         "last_failure_reason": "图片供应商请求超时，请稍后重试",
+        "candidate_index": 1,
+        "candidate_count": 1,
         "last_failure_category": "timeout",
         "last_failure_retryable": True,
         "retry_hint": "retry_later",
-        "auto_retry_attempt": 1,
-        "max_attempts": IMAGE_SESSION_GENERATION_MAX_ATTEMPTS,
     }
     assert task.is_retryable is True
     assert task.attempts == 1
-    assert sent == [result.task.id]
+    assert sent == []
 
 
 def test_image_session_worker_non_retryable_policy_failure_stops_without_auto_retry(
@@ -1261,7 +1260,7 @@ def test_image_session_worker_surfaces_completed_text_without_image_reason(
     assert task.is_retryable is True
 
 
-def test_image_session_worker_partial_retry_continues_remaining_candidates_without_duplicates(
+def test_image_session_worker_partial_failure_preserves_candidates_without_auto_retry(
     configured_env: Path,
     db_session,
     monkeypatch: pytest.MonkeyPatch,
@@ -1317,24 +1316,21 @@ def test_image_session_worker_partial_retry_continues_remaining_candidates_witho
     )
 
     assert task is not None
-    assert task.status == "succeeded"
-    assert task.failure_reason is None
+    assert task.status == "failed"
+    assert task.failure_reason
     assert task.result_generation_group_id is not None
-    assert task.completed_candidates == 2
+    assert task.completed_candidates == 1
     assert task.active_candidate_index is None
-    assert task.progress_phase == "succeeded"
+    assert task.progress_phase == "failed"
     assert task.progress_updated_at is not None
     assert task.finished_at is not None
-    assert task.is_retryable is False
-    assert task.attempts == 2
-    assert calls["count"] == 3
-    assert len(rounds) == 2
+    assert task.is_retryable is True
+    assert task.attempts == 1
+    assert calls["count"] == 2
+    assert len(rounds) == 1
     assert rounds[0].candidate_index == 1
     assert rounds[0].candidate_count == 2
     assert rounds[0].generation_group_id == task.result_generation_group_id
-    assert rounds[1].candidate_index == 2
-    assert rounds[1].candidate_count == 2
-    assert rounds[1].generation_group_id == task.result_generation_group_id
     assert Path(configured_env, rounds[0].generated_asset.storage_path).exists()
 
 
@@ -1371,7 +1367,7 @@ def test_image_session_worker_marks_task_failed_when_time_limit_raises_outside_c
     assert task.status == "failed"
     assert task.failure_reason == "图片生成失败，请稍后重试"
     assert task.finished_at is not None
-    assert task.attempts == 3
+    assert task.attempts == 1
     assert task.is_retryable is True
 
 
@@ -1412,7 +1408,7 @@ def test_image_session_worker_failure_settles_task_when_parent_session_deleted(
     assert task.status == "failed"
     assert task.failure_reason == "图片生成失败，请稍后重试"
     assert task.finished_at is not None
-    assert task.attempts == 3
+    assert task.attempts == 1
     assert task.is_retryable is True
 
 
@@ -1472,9 +1468,9 @@ def test_image_session_worker_failure_settlement_retries_after_stale_data_error(
     assert task.failure_reason == "已生成 1/2 张候选，后续生成失败，请重新发起生成补齐。"
     assert task.result_generation_group_id is not None
     assert task.finished_at is not None
-    assert task.attempts == 3
+    assert task.attempts == 1
     assert task.is_retryable is True
-    assert settlement_calls["count"] == 4
+    assert settlement_calls["count"] == 2  # Only the DB settlement is retried, never generation.
 
 
 def test_image_session_worker_persists_provider_progress_heartbeat(
@@ -2153,7 +2149,6 @@ def test_image_session_openai_images_candidate_count_sets_provider_batch_n(
             "prompt": calls[0]["prompt"],
             "size": "1024x1024",
             "n": 10,
-            "response_format": "b64_json",
         }
     ]
     payload = generated.json()

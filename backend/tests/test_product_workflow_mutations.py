@@ -195,6 +195,7 @@ def test_product_workflow_status_endpoint_returns_lightweight_state(db_session) 
     ).model_dump(mode="json")
     assert run_status_payload["runs"]
     assert set(run_status_payload["runs"][0]) == {
+        "row_version",
         "id",
         "workflow_id",
         "status",
@@ -215,6 +216,7 @@ def test_product_workflow_status_endpoint_returns_lightweight_state(db_session) 
     assert run_status_payload["runs"][0]["status"] == "succeeded"
     assert run_status_payload["runs"][0]["node_runs"]
     assert set(run_status_payload["runs"][0]["node_runs"][0]) == {
+        "execution",
         "id",
         "workflow_run_id",
         "node_id",

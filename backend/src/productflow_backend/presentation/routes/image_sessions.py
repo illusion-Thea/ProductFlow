@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from productflow_backend.application.execution import legacy as controlled_execution
 from productflow_backend.application.image_sessions import (
     add_image_session_reference_images,
     attach_image_session_asset_to_product,
@@ -22,6 +23,7 @@ from productflow_backend.infrastructure.db.models import ImageSessionAsset
 from productflow_backend.infrastructure.storage import ImageVariantName
 from productflow_backend.presentation.deps import get_session, require_admin, require_deletion_enabled
 from productflow_backend.presentation.image_variants import serve_image_variant
+from productflow_backend.presentation.routes.execution_requests import execution_write, require_action_payload
 from productflow_backend.presentation.schemas.image_sessions import (
     AttachImageSessionAssetRequest,
     CreateImageSessionRequest,
@@ -35,6 +37,7 @@ from productflow_backend.presentation.schemas.image_sessions import (
     serialize_image_session_status,
     serialize_image_session_summary,
 )
+from productflow_backend.presentation.schemas.prototype_tasks import OperationActionRequest
 from productflow_backend.presentation.upload_validation import (
     read_validated_image_upload,
     validate_reference_image_count,
@@ -150,8 +153,20 @@ def delete_image_session_reference_image_endpoint(
 def generate_image_session_round_endpoint(
     image_session_id: str,
     payload: GenerateImageSessionRoundRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> ImageSessionDetailResponse:
+    if controlled_execution.enabled():
+        def apply(actor):
+            controlled_execution.accept_image_session(session, image_session_id, payload.model_dump(mode="json"), actor)
+            session.flush()
+            session.expire_all()
+            detail = serialize_image_session_detail(get_image_session_detail(session, image_session_id))
+            return 202, detail.model_dump(mode="json")
+        return execution_write(
+            request, session, f"image_session:{image_session_id}:generate", payload.model_dump(mode="json"), apply,
+            prepare=lambda: controlled_execution.prepare_asset_manifest("session", image_session_id),
+        )
     image_session = submit_image_session_generation_task(
         session,
         image_session_id=image_session_id,
@@ -173,8 +188,20 @@ def generate_image_session_round_endpoint(
 def retry_image_session_generation_task_endpoint(
     image_session_id: str,
     task_id: str,
+    request: Request,
+    payload: OperationActionRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ImageSessionDetailResponse:
+    if controlled_execution.enabled():
+        values = require_action_payload(payload)
+        def apply(actor):
+            controlled_execution.retry_image_session(session, image_session_id, task_id, values, actor)
+            session.flush()
+            session.expire_all()
+            detail = serialize_image_session_detail(get_image_session_detail(session, image_session_id))
+            return 202, detail.model_dump(mode="json")
+        return execution_write(request, session, f"image_task:{task_id}:retry", values, apply,
+            prepare=lambda: controlled_execution.prepare_asset_manifest("session", image_session_id))
     image_session = retry_image_session_generation_task(
         session,
         image_session_id=image_session_id,
@@ -190,8 +217,19 @@ def retry_image_session_generation_task_endpoint(
 def cancel_image_session_generation_task_endpoint(
     image_session_id: str,
     task_id: str,
+    request: Request,
+    payload: OperationActionRequest | None = None,
     session: Session = Depends(get_session),
 ) -> ImageSessionDetailResponse:
+    if controlled_execution.enabled():
+        values = require_action_payload(payload)
+        def apply(actor):
+            controlled_execution.cancel_image_session(session, image_session_id, task_id, values)
+            session.flush()
+            session.expire_all()
+            detail = serialize_image_session_detail(get_image_session_detail(session, image_session_id))
+            return 200, detail.model_dump(mode="json")
+        return execution_write(request, session, f"image_task:{task_id}:cancel", values, apply)
     image_session = cancel_image_session_generation_task(
         session,
         image_session_id=image_session_id,

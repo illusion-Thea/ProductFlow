@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
-from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, text
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from productflow_backend.domain.enums import (
     CopyStatus,
@@ -19,14 +18,7 @@ from productflow_backend.domain.enums import (
     WorkflowNodeType,
     WorkflowRunStatus,
 )
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
-def new_id() -> str:
-    return str(uuid4())
+from productflow_backend.infrastructure.db.base import Base, TimestampMixin, new_id, utcnow
 
 
 def enum_value_column(enum_cls: type) -> SqlEnum:
@@ -35,19 +27,6 @@ def enum_value_column(enum_cls: type) -> SqlEnum:
         name=enum_cls.__name__.lower(),
         values_callable=lambda members: [member.value for member in members],
         validate_strings=True,
-    )
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=utcnow,
-        onupdate=utcnow,
     )
 
 
@@ -256,6 +235,7 @@ class WorkflowRun(Base):
 
     __tablename__ = "workflow_runs"
 
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     workflow_id: Mapped[str] = mapped_column(String(36), ForeignKey("product_workflows.id", ondelete="CASCADE"))
     status: Mapped[WorkflowRunStatus] = mapped_column(
@@ -503,7 +483,11 @@ class ImageSessionGenerationTask(Base):
         Index("ix_image_session_generation_tasks_status", "status"),
     )
 
+    row_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    retry_of_task_id: Mapped[str | None] = mapped_column(
+        ForeignKey("image_session_generation_tasks.id", ondelete="RESTRICT"),
+    )
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("image_sessions.id", ondelete="CASCADE"))
     status: Mapped[JobStatus] = mapped_column(enum_value_column(JobStatus), default=JobStatus.QUEUED)
     prompt: Mapped[str] = mapped_column(Text)
@@ -571,3 +555,7 @@ class ImageGalleryEntry(Base):
 
     asset: Mapped[ImageSessionAsset] = relationship(foreign_keys=[image_session_asset_id])
     round: Mapped[ImageSessionRound | None] = relationship(foreign_keys=[image_session_round_id])
+
+
+# Register execution/prototype tables on the existing metadata for Alembic and legacy fixtures.
+from productflow_backend.infrastructure.db import execution_models, prototype_models  # noqa: E402, F401

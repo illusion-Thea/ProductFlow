@@ -1,3 +1,8 @@
+import { ExecutionHistoryPanel } from "../components/ExecutionHistoryPanel";
+import { ExecutionIntentRecovery } from "../components/ExecutionIntentRecovery";
+import { useExecutionActions } from "../lib/useExecutionActions";
+import { PrototypeExecutionPanel } from "./product-detail/PrototypeExecutionPanel";
+import { usePrototypeExecution } from "./product-detail/usePrototypeExecution";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -196,6 +201,8 @@ export function ProductDetailPage() {
   const [historyActionBusy, setHistoryActionBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const prototypeExecution = usePrototypeExecution(productId);
+  const executionActions = useExecutionActions(productId, "product");
   const productQuery = useQuery({
     queryKey: ["product", productId],
     queryFn: () => api.getProduct(productId),
@@ -802,7 +809,7 @@ export function ProductDetailPage() {
   });
 
   const cancelWorkflowRunMutation = useMutation({
-    mutationFn: (runId: string) => api.cancelProductWorkflowRun(productId, runId),
+    mutationFn: (runId: string) => api.cancelProductWorkflowRun(productId, runId, workflowQuery.data?.runs.find((run) => run.id === runId)?.row_version),
     onSuccess: async (nextWorkflow) => {
       setError("");
       queryClient.setQueryData(["product-workflow", productId], nextWorkflow);
@@ -819,7 +826,7 @@ export function ProductDetailPage() {
   });
 
   const retryWorkflowRunMutation = useMutation({
-    mutationFn: (runId: string) => api.retryProductWorkflowRun(productId, runId),
+    mutationFn: (runId: string) => api.retryProductWorkflowRun(productId, runId, workflowQuery.data?.runs.find((run) => run.id === runId)?.row_version),
     onSuccess: (nextWorkflow) => {
       setError("");
       queryClient.setQueryData(["product-workflow", productId], nextWorkflow);
@@ -2031,6 +2038,13 @@ export function ProductDetailPage() {
     <div className="flex h-screen flex-col overflow-hidden bg-white text-sm text-zinc-900 dark:bg-[#060a12] dark:text-slate-100">
       {!topChromeCollapsed ? <TopNav onHome={() => navigate("/products")} breadcrumbs={product.name} /> : null}
 
+      <PrototypeExecutionPanel key={prototypeExecution.taskId || "new"} controller={prototypeExecution} />
+      <ExecutionIntentRecovery error={runWorkflowMutation.error ?? cancelWorkflowRunMutation.error ?? retryWorkflowRunMutation.error} onRecovered={async () => {
+        runWorkflowMutation.reset(); cancelWorkflowRunMutation.reset(); retryWorkflowRunMutation.reset();
+        setError(""); await queryClient.invalidateQueries({ queryKey: ["product-workflow", productId] });
+      }} />
+      <ExecutionHistoryPanel operations={workflowQuery.data?.runs.flatMap((run) => run.node_runs.flatMap((node) => node.execution ? [node.execution] : [])) ?? []} pending={executionActions.isPending} error={executionActions.error}
+        onAction={(operation, action, acknowledge) => executionActions.mutate({ operation, action, acknowledge })} />
       <main className="flex min-h-0 flex-1 flex-col border-t border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-[#060a12]">
         {error ? (
           <div className="z-20 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 dark:border-red-400/35 dark:bg-red-500/10 dark:text-red-200">
