@@ -14,6 +14,7 @@ type TranslateFunction = (key: TranslationKey, params?: TranslationParams) => st
 const defaultT: TranslateFunction = (key, params) => translate(DEFAULT_LOCALE, key, params);
 
 const NODE_STATUS_LABEL_KEYS: Record<WorkflowNode["status"], TranslationKey> = {
+  unknown: "execution.unknown",
   idle: "detail.nodeStatus.idle",
   queued: "detail.nodeStatus.queued",
   running: "detail.nodeStatus.running",
@@ -87,6 +88,7 @@ export function configString(
 
 export function statusClass(status: WorkflowNode["status"]): string {
   return {
+    unknown: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-100",
     idle: "border-zinc-200 bg-white text-zinc-500 dark:border-slate-600 dark:bg-[#0b1220] dark:text-slate-200",
     queued: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-100",
     running: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/15 dark:text-blue-100",

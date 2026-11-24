@@ -70,3 +70,8 @@ Triage uses the default five-label vocabulary: `needs-triage`, `needs-info`, `re
 ### Domain docs
 
 Domain documentation uses a single-context layout: root `CONTEXT.md` plus `docs/adr/` when they exist. See `docs/agents/domain.md`.
+
+## M1-01 UI and copy-language contract
+
+- The current workbench UI supports Chinese only (user confirmation, 2026-11-24). Use Chinese labels, statuses, errors, placeholders, and aria text through the shared translation helpers; do not expose a UI language switch or honor legacy non-Chinese UI preferences. Retain existing dictionaries for legacy system-label recognition; leave user content and model/provider identifiers unchanged. Verify light/dark and desktop/mobile behavior.
+- Garment copy language is independent of the Chinese UI and market metadata: Chinese (default), Malay, Indonesian, and Filipino. Explicitly generate the selected-language text preview and confirm its language/version before composition; opening the workbench or changing market never triggers translation or model calls.

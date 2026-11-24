@@ -1,4 +1,6 @@
 import { normalizeApiErrorDetail } from "./apiErrors";
+import { clearExecutionIntent, executionIntent, readExecutionIntent } from "./executionIntent";
+import type { ExecutionAction, ExecutionSummary, PrototypeDraft, PrototypeExperiment, PrototypePlan, PrototypeStatus, PrototypeTask } from "./types";
 import type {
   ApplyWorkflowTemplateGroupInput,
   CanvasTemplateSummary,
@@ -39,6 +41,7 @@ import type {
 } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+export const verificationEnvironment = import.meta.env.VITE_VERIFICATION_ENVIRONMENT_ID as string | undefined;
 
 export class ApiError extends Error {
   status: number;
@@ -61,12 +64,12 @@ function toApiUrl(path: string): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(toApiUrl(path), {
+    ...init,
     credentials: "include",
     headers: {
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...init?.headers,
     },
-    ...init,
   });
 
   if (!response.ok) {
@@ -86,8 +89,79 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function controlledWrite<T>(path: string, scope: string, payload: unknown, method = "POST"): Promise<T> {
+  if (!verificationEnvironment) return request(path, { method, body: JSON.stringify(payload) });
+  const identity = await request<{ environment_id: string; stub_only: boolean }>("/api/verification-context");
+  if (identity.environment_id !== verificationEnvironment || !identity.stub_only) throw new ApiError(409, "verification_environment_mismatch");
+  const storageKey = `productflow.execution:${verificationEnvironment}:${scope}`;
+  const [root_kind, root_id, action] = scope.split(":");
+  const query = new URLSearchParams({ root_kind, root_id, action });
+  const saved = readExecutionIntent(sessionStorage, storageKey);
+  if (saved) {
+    // After reload, the server version may already have advanced. Reconcile the
+    // old intent before comparing new UI state; never create a replacement key.
+    const status = await request<{ status: string; response?: T }>(`/api/execution-requests/${saved.key}?${query}`);
+    if (status.status === "committed" && status.response !== undefined) {
+      clearExecutionIntent(sessionStorage, storageKey, saved.key);
+      return status.response;
+    }
+  }
+  const intent = await executionIntent(sessionStorage, storageKey, payload);
+  try {
+    const result = await request<T>(path, { method, body: JSON.stringify(payload), headers: { "Idempotency-Key": intent.key } });
+    clearExecutionIntent(sessionStorage, storageKey, intent.key);
+    return result;
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) clearExecutionIntent(sessionStorage, storageKey, intent.key);
+    else {
+      try {
+        const status = await request<{ status: string; response?: T }>(`/api/execution-requests/${intent.key}?${query}`);
+        if (status.status === "committed" && status.response !== undefined) {
+          clearExecutionIntent(sessionStorage, storageKey, intent.key);
+          return status.response;
+        }
+      } catch { /* Keep the original key; user retries the same intent after reconnection. */ }
+    }
+    throw error;
+  }
+}
+
 export const api = {
   toApiUrl,
+  getPrototypeExperiments(productId: string): Promise<{ items: PrototypeExperiment[] }> {
+    return request(`/api/prototype-experiments?product_id=${encodeURIComponent(productId)}`);
+  },
+  getPrototypeTasks(productId: string): Promise<{ items: PrototypeStatus[]; next_cursor: string | null }> {
+    return request(`/api/products/${productId}/prototype-tasks`);
+  },
+  getPrototypeTask(taskId: string): Promise<PrototypeTask> { return request(`/api/prototype-tasks/${taskId}`); },
+  getPrototypeStatus(taskId: string): Promise<PrototypeStatus> { return request(`/api/prototype-tasks/${taskId}/status`); },
+  createPrototype(productId: string, experimentId: string, draft: PrototypeDraft): Promise<PrototypeTask> {
+    return controlledWrite(`/api/products/${productId}/prototype-tasks`, `product:${productId}:create-prototype`, { ...draft, experiment_run_id: experimentId });
+  },
+  savePrototypeDraft(task: PrototypeTask, draft: PrototypeDraft): Promise<PrototypeTask> {
+    return controlledWrite(`/api/prototype-tasks/${task.id}/draft`, `prototype:${task.id}:draft`, { ...draft, expected_row_version: task.row_version }, "PATCH");
+  },
+  preparePrototypeText(task: PrototypeTask): Promise<ExecutionSummary> {
+    return controlledWrite(`/api/prototype-tasks/${task.id}/text-preparations`, `prototype:${task.id}:text-preparations`, { expected_row_version: task.row_version, content_language: task.draft_content_language });
+  },
+  confirmPrototype(task: PrototypeTask, plan: PrototypePlan): Promise<PrototypeTask> {
+    return controlledWrite(`/api/prototype-tasks/${task.id}/confirm`, `prototype:${task.id}:confirm`, { expected_row_version: task.row_version, plan_id: plan.id, plan_sha256: plan.input_sha256, preview_revision: plan.preview_revision, content_language: plan.content_language });
+  },
+  generatePrototype(task: PrototypeTask, plan: PrototypePlan): Promise<{ operation_ids: string[] }> {
+    return controlledWrite(`/api/prototype-tasks/${task.id}/generate`, `prototype:${task.id}:generate`, { expected_row_version: task.row_version, accepted_plan_id: plan.id });
+  },
+  cancelPrototype(task: PrototypeTask): Promise<PrototypeTask> {
+    return controlledWrite(`/api/prototype-tasks/${task.id}/cancel`, `prototype:${task.id}:cancel`, { expected_row_version: task.row_version });
+  },
+  executeAction(operation: ExecutionSummary, action: ExecutionAction, acknowledge: boolean): Promise<unknown> {
+    const retryLegacy = action === "retry" && operation.source_kind !== "prototype";
+    const scope = retryLegacy ? `${operation.source_kind === "image_session" ? "image_task" : "workflow_run"}:${operation.retry_url.split("/").at(-2)}:retry` : `operation:${operation.operation_id}:${action}`;
+    return controlledWrite(action === "retry" ? operation.retry_url : `${operation.action_url}/${action}`, scope, {
+      expected_row_version: retryLegacy ? operation.root_row_version : operation.row_version,
+      acknowledge_possible_duplicate_charge: acknowledge,
+    });
+  },
   getSessionState(): Promise<SessionState> {
     return request<SessionState>("/api/auth/session");
   },
@@ -274,16 +348,13 @@ export const api = {
       tool_options?: ImageToolOptions | null;
     },
   ): Promise<ImageSessionDetail> {
-    return request(`/api/image-sessions/${sessionId}/generate`, {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
+    return controlledWrite(`/api/image-sessions/${sessionId}/generate`, `image_session:${sessionId}:generate`, input);
   },
-  retryImageSessionGenerationTask(sessionId: string, taskId: string): Promise<ImageSessionDetail> {
-    return request(`/api/image-sessions/${sessionId}/generation-tasks/${taskId}/retry`, { method: "POST" });
+  retryImageSessionGenerationTask(sessionId: string, taskId: string, expectedVersion?: number): Promise<ImageSessionDetail> {
+    return controlledWrite(`/api/image-sessions/${sessionId}/generation-tasks/${taskId}/retry`, `image_task:${taskId}:retry`, { expected_row_version: expectedVersion });
   },
-  cancelImageSessionGenerationTask(sessionId: string, taskId: string): Promise<ImageSessionDetail> {
-    return request(`/api/image-sessions/${sessionId}/generation-tasks/${taskId}/cancel`, { method: "POST" });
+  cancelImageSessionGenerationTask(sessionId: string, taskId: string, expectedVersion?: number): Promise<ImageSessionDetail> {
+    return controlledWrite(`/api/image-sessions/${sessionId}/generation-tasks/${taskId}/cancel`, `image_task:${taskId}:cancel`, { expected_row_version: expectedVersion });
   },
   attachImageSessionAssetToProduct(
     sessionId: string,
@@ -422,15 +493,12 @@ export const api = {
     return request(`/api/workflow-nodes/${nodeId}`, { method: "DELETE" });
   },
   runProductWorkflow(productId: string, input?: { start_node_id?: string }): Promise<ProductWorkflow> {
-    return request(`/api/products/${productId}/workflow/run`, {
-      method: "POST",
-      body: JSON.stringify(input ?? {}),
-    });
+    return controlledWrite(`/api/products/${productId}/workflow/run`, `product:${productId}:run`, input ?? {});
   },
-  cancelProductWorkflowRun(productId: string, runId: string): Promise<ProductWorkflow> {
-    return request(`/api/products/${productId}/workflow/runs/${runId}/cancel`, { method: "POST" });
+  cancelProductWorkflowRun(productId: string, runId: string, expectedVersion?: number): Promise<ProductWorkflow> {
+    return controlledWrite(`/api/products/${productId}/workflow/runs/${runId}/cancel`, `workflow_run:${runId}:cancel`, { expected_row_version: expectedVersion });
   },
-  retryProductWorkflowRun(productId: string, runId: string): Promise<ProductWorkflow> {
-    return request(`/api/products/${productId}/workflow/runs/${runId}/retry`, { method: "POST" });
+  retryProductWorkflowRun(productId: string, runId: string, expectedVersion?: number): Promise<ProductWorkflow> {
+    return controlledWrite(`/api/products/${productId}/workflow/runs/${runId}/retry`, `workflow_run:${runId}:retry`, { expected_row_version: expectedVersion });
   },
 };

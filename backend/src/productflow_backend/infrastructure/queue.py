@@ -60,6 +60,12 @@ class ImageSessionGenerationTaskRecoverySummary:
 @lru_cache(maxsize=1)
 def get_broker() -> RedisBroker:
     """初始化 Dramatiq Redis Broker（单例）。"""
+    from productflow_backend.application.execution.legacy import enabled
+    if enabled():
+        from productflow_backend.infrastructure.outbox import execution_broker
+        broker = execution_broker()
+        dramatiq.set_broker(broker)
+        return broker
     settings = get_settings()
     broker = RedisBroker(url=settings.redis_url)
     dramatiq.set_broker(broker)
@@ -119,6 +125,11 @@ def recover_unfinished_workflow_runs(
     `running` 作为 active 状态：如果没有节点正在执行，说明消息可能丢失或还未消费，启动时可以补发；如果有节点正在
     `running`，只有 worker 启动并且节点运行超过 stale cutoff 时才把这些节点重置为 `queued` 再补发。
     """
+    from productflow_backend.application.execution.legacy import enabled
+    if enabled():
+        from productflow_backend.application.execution.quarantine import quarantine_legacy_active
+        quarantine_legacy_active()
+        return WorkflowRunRecoverySummary()
 
     cutoff = utcnow() - stale_running_after
     session = get_session_factory()()
@@ -202,6 +213,11 @@ def recover_unfinished_image_session_generation_tasks(
     stale_running_after: timedelta | None = None,
 ) -> ImageSessionGenerationTaskRecoverySummary:
     """恢复 queued / stale running 的连续生图任务，Redis 只作为可补发 delivery。"""
+    from productflow_backend.application.execution.legacy import enabled
+    if enabled():
+        from productflow_backend.application.execution.quarantine import quarantine_legacy_active
+        quarantine_legacy_active()
+        return ImageSessionGenerationTaskRecoverySummary()
 
     resolved_stale_running_after = (
         get_image_session_stale_running_after() if stale_running_after is None else stale_running_after

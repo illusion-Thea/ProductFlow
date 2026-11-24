@@ -1362,3 +1362,20 @@ if copy_set is None:
     copy_set = _create_context_copy_set(session, product=product, product_context=context, node=node)
 targets = downstream_reference_nodes
 ```
+
+## M1-01 verification bridge
+
+### 1. Scope
+`application/execution/legacy*.py` bridges free DAG and image-session submissions in the verified stub instance. Existing product/DAG semantics remain separate from prototype batches.
+### 2. Signatures
+Legacy submission routes require `Idempotency-Key` and `expected_row_version` when controlled execution is enabled. Their existing response envelopes gain `row_version` and execution summaries; detail/status DTOs must agree.
+### 3. Contracts
+Freeze product, copy, reference and provider snapshots at acceptance. Text brief/copy and each actual image request use separate stages; local template rendering creates no ModelCall. Old active rows without dispatch evidence are quarantined with append-only digest events. Retry appends a new legacy task/run and attempt. Cancelled roots remain cancelled when late results arrive.
+### 4. Validation and errors
+Protected product/session/node/input deletion returns 409 before any row/file mutation. Use canonical locks in deletion, acceptance and singleton-node normalization. Unrelated fixture deletion keeps its existing switch and behavior.
+### 5. Cases
+Good: Run All executes free nodes without rewriting accepted ten-slot inputs. Base: a late cancelled-session result is retained under its original attempt, not inserted as a live session round. Bad: old actor recovery directly regenerates quarantined work.
+### 6. Required evidence
+`test_execution_legacy.py` covers text, image, template, unknown retry, quarantine and cancellation projection. `test_execution_protection.py` checks both deletion/acceptance orders and file hashes; legacy workflow/session tests preserve branches and six-image context limits.
+### 7. Wrong versus correct
+Wrong: reset an original generation task on retry. Correct: append retry provenance and preserve original outcomes. Q01 deletion protection is temporary verification behavior; formal archive/retention remains unimplemented.

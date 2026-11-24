@@ -1,0 +1,24 @@
+import type { CopyPayloadV2, PrototypeStatus, PrototypeTask } from "../../lib/types";
+
+export const CONTENT_LANGUAGES = ["zh-CN", "ms-MY", "id-ID", "fil-PH"] as const;
+
+export function previewCopyText(payload: CopyPayloadV2): string {
+  const content = payload.content;
+  if (content.kind === "freeform") return content.text;
+  if (content.kind === "blocks") return content.blocks.map((block) => [block.label, block.text].filter(Boolean).join(" · ")).join("\n");
+  return content.sections.map((section) => [section.title, section.body, ...section.items.map((block) => block.text)].filter(Boolean).join("\n")).join("\n\n");
+}
+
+export function prototypeNeedsPolling(task?: PrototypeStatus): boolean {
+  return Boolean(task && (task.business_state === "cancelling" || task.operations.some((operation) =>
+    ["queued", "running"].includes(operation.state) || (operation.state === "unknown" && !operation.wait_closed_at))));
+}
+
+export function mergePrototypeStatus(task: PrototypeTask, status?: PrototypeStatus): PrototypeTask {
+  if (!status || task.id !== status.id || status.status_version <= task.status_version) return task;
+  return { ...task, ...status, row_version: Math.max(task.row_version, status.row_version) };
+}
+
+export function selectedPlan(task?: PrototypeTask) {
+  return task?.plans.find((plan) => plan.id === task.current_plan_id);
+}

@@ -24,6 +24,7 @@ class JobStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    UNKNOWN = "unknown"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
@@ -67,6 +68,7 @@ class WorkflowNodeStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    UNKNOWN = "unknown"
     FAILED = "failed"
 
 
@@ -75,5 +77,6 @@ class WorkflowRunStatus(StrEnum):
 
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    UNKNOWN = "unknown"
     FAILED = "failed"
     CANCELLED = "cancelled"

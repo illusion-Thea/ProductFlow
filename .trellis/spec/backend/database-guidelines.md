@@ -1174,3 +1174,21 @@ migration file.
   `_load_database_config_overrides()` tolerates missing `app_settings` during fresh startup.
 - Reading or writing absolute storage paths in the database. Persist relative paths and resolve them through
   `LocalStorage`.
+
+## M1-01 controlled execution (verification only)
+
+### 1. Scope
+`prototype_models.py` and `execution_models.py` share `db/base.py::Base` with existing models. This gate is enabled only in the isolated stub instance; it does not establish production accounting, authorization or retention.
+### 2. Signatures
+`accept_operation(...) -> (ExecutionOperation, ExecutionAttempt)` creates model stages and Outbox rows inside the caller's transaction. `lock_task`, `lock_operation`, and `lock_stage` acquire the canonical root before descendants.
+### 3. Contracts
+Lock order is advisory 42630001, advisory 42630002, experiment/product/root, item, operation, attempt, stage, call. Persist client-payload idempotency hashes separately from immutable resolved input hashes. Stage ownership, first-attempt and accepted-plan relationships require database constraints, not independent foreign keys alone. Dispatch intent consumes a non-refundable quota sequence; transport-start CAS commits before I/O.
+Migrations 0030/0031/0032/0033 expand enums with autocommit, create/quarantine records, enforce ownership/immutability, then append quarantine hashes. An enum commit survives a later data migration failure. Never downgrade or recreate a ledger to recover an execution.
+### 4. Validation and errors
+Same key/payload returns stored response; changed payload or stale first acceptance returns 409. Commit uncertainty returns 503 and retains the same key. Wrong owner/slot and changed immutable snapshots fail database constraints. Unknown cost amounts remain null.
+### 5. Cases
+Good: two workers compete for one stage and produce one ModelCall. Base: a second task shares the original experiment's counter. Bad: reclaiming quota after a timeout or replacing an unknown attempt.
+### 6. Required evidence
+`integration_tests/test_execution_{postgres,constraints,migrations}.py` checks independent PG connections, bounded lock waits, unrelated writes during model I/O, A-commit/B-failure, and empty-database upgrade. SQLite fixtures cannot prove these properties.
+### 7. Wrong versus correct
+Wrong: hold `session.begin()` around provider/file I/O. Correct: commit intent and the consumed permit, exit the transaction, then call the transport once. Read prepared input hashes outside T1 and recheck input identity under the root lock.

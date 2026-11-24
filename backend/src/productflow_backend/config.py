@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -124,6 +125,17 @@ class Settings(BaseSettings):
     app_port: int = 29280
     backend_cors_origins: str = "http://localhost:29281,http://127.0.0.1:29281"
     session_cookie_secure: bool = False
+    session_cookie_name: str = "session"
+    prototype_execution_enabled: bool = False
+    execution_stub_only: bool = True
+    execution_environment_id: str = "disabled"
+    execution_release_id: str = "m1-01-stub-v1"
+    execution_queue_name: str = "m101_disabled"
+    execution_redis_namespace: str = "m101_disabled"
+    execution_claim_seconds: int = Field(default=10, ge=1, le=120)
+    execution_request_seconds: int = Field(default=30, ge=1, le=600)
+    execution_queue_seconds: int = Field(default=600, ge=1, le=3600)
+    execution_local_seconds: int = Field(default=30, ge=1, le=600)
 
     admin_access_key: str = Field(min_length=8)
     settings_access_token: str | None = None
@@ -271,6 +283,12 @@ def get_settings() -> Settings:
     can read any database-stored configuration.
     """
 
+    if os.environ.get("M101_MANIFEST"):
+        from productflow_backend.infrastructure.verification import validate_settings
+
+        settings = Settings(_env_file=None)
+        validate_settings(settings)
+        return settings
     return Settings()
 
 

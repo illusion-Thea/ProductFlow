@@ -82,8 +82,9 @@ when that keeps runtime behavior unchanged.
 - New pure helper -> add Vitest unit coverage for normal and edge cases.
 - ProductDetail helper changes -> prefer colocated tests under `web/src/pages/product-detail/`.
 - Locale/theme helper changes -> update or add tests near `web/src/lib/preferences.test.ts`.
-- Locale-aware pure helper changes -> cover the supported locale set (`zh-CN`, `en-US`, `ja-JP`, `vi-VN`) where labels differ,
-  including fallback behavior for legacy system labels when old records store default Chinese titles.
+- The current workbench supports Chinese only. Cover returning users with legacy non-Chinese locale preferences and
+  verify that desktop/mobile navigation has no UI language picker. Retained locale-aware helpers must still recognize
+  legacy system labels, without changing user-authored titles or multilingual image-copy previews.
 - DTO/API behavior changes still require `just web-build`; frontend unit tests do not replace backend contract tests.
 
 ### 7. Wrong vs Correct

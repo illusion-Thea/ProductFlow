@@ -30,6 +30,16 @@ def new_request_id() -> str:
     return uuid.uuid4().hex
 
 
+def log_execution_event(event_name: str, **identifiers: str | int | None) -> None:
+    """Whitelist correlation fields; callers cannot accidentally log payloads."""
+    allowed = {"operation_id", "attempt_id", "stage_id", "model_call_id", "outbox_event_id",
+               "environment_id", "release_id", "generation", "resource_id"}
+    if not set(identifiers) <= allowed or not event_name.replace("_", "").isalnum():
+        raise ValueError("execution_log_requires_event_and_correlation_identifiers")
+    values = " ".join(f"{key}={value}" for key, value in sorted(identifiers.items()) if value is not None)
+    logging.getLogger(__name__).info("execution_event=%s %s", event_name, values)
+
+
 def set_request_id(request_id: str) -> Token[str]:
     return _request_id_var.set(request_id)
 

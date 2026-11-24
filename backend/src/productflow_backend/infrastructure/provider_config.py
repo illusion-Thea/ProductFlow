@@ -34,6 +34,31 @@ PROVIDER_CAPABILITIES = {
 }
 UNSET_PROVIDER_FIELD = object()
 
+
+def snapshot_provider_binding(session: Session, purpose: str) -> dict[str, Any]:
+    """Read without bootstrap/commit. Freeze non-secret identity for accepted work.
+
+    M1-01 has no credential revision store and cannot execute real bindings.
+    """
+    from productflow_backend.domain.model_execution import ExecutionConflict, canonical_hash
+
+    binding = session.scalar(select(ProviderBinding).where(ProviderBinding.purpose == purpose))
+    if not binding:
+        raise ExecutionConflict("provider_binding_not_initialized")
+    if binding.provider_kind != "mock":
+        raise ExecutionConflict("real_provider_binding_disabled_in_m1_01")
+    safe_config = {key: value for key, value in (binding.config_json or {}).items()
+                   if key in {"quality", "style", "background", "size", "response_format", "aspect_ratio",
+                              "image_size", "output_format", "moderation", "safety_filter_level"}}
+    models = {key: value for key, value in (binding.model_settings_json or {}).items()
+              if key in {"brief_model", "copy_model", "model"} and isinstance(value, str)}
+    snapshot = {"binding_id": binding.id, "provider_kind": binding.provider_kind,
+                "profile_id": binding.provider_profile_id, "models": models,
+                "config": safe_config, "binding_updated_at": binding.updated_at.isoformat(),
+                "transport_kind": "stub", "credential_revision_ref": None, "n": 1}
+    snapshot["config_revision"] = canonical_hash(snapshot)
+    return snapshot
+
 LEGACY_PROVIDER_CONFIG_KEYS = {
     "text_provider_kind",
     "text_api_key",

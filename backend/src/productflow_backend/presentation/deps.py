@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from productflow_backend.config import get_runtime_settings
+from productflow_backend.config import get_runtime_settings, get_settings
 from productflow_backend.infrastructure.db.session import get_db_session
 
 
@@ -21,3 +21,13 @@ def require_admin(request: Request) -> None:
 def require_deletion_enabled() -> None:
     if not get_runtime_settings().deletion_enabled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="删除功能已关闭，请联系管理员")
+
+
+def require_prototype_admin(request: Request) -> str:
+    settings = get_settings()
+    if (not settings.prototype_execution_enabled or settings.app_env != "verification"
+            or not settings.execution_stub_only or not get_runtime_settings().admin_access_required):
+        raise HTTPException(403, "prototype_verification_only")
+    if not request.session.get("admin_key_verified"):
+        raise HTTPException(401, "verified_admin_key_required")
+    return f"shared_admin:{settings.execution_environment_id}"

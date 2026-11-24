@@ -576,3 +576,20 @@ onClick={() => runWorkflowMutation.mutate(selectedNode.id)}
 ```tsx
 onClick={() => void handleRunWorkflow(selectedNode.id)} // flushes selected draft first
 ```
+
+## M1-01 separate prototype controls
+
+### 1. Scope
+`PrototypeExecutionPanel.tsx` is an isolated-validation panel alongside the existing workbench. Its ten slots are not DAG candidates or formal composite outputs.
+### 2. Interfaces
+Use `api.createPrototype`, `preparePrototypeText`, `confirmPrototype`, `generatePrototype`, and `cancelPrototype`; generic operation actions are rendered by `ExecutionOperationList`.
+### 3. Contracts
+Require saved draft, current-language preview and explicit confirmation before ten-slot submission. Canvas Run All continues to run free nodes only. Base assets remain undecided; no adoption/completed/R0 UI is inferred. The current workbench UI is Chinese only (2026-11-24 user confirmation); the four content languages remain independently selectable. Legacy UI locale preferences never change chrome or accepted copy.
+### 4. Validation and errors
+Missing experiment/input disables preparation. Unsaved language changes disable confirm/generate. Cancellation disables execution controls. Recoveries show deadlines only while relevant; unknown notices retain potential duplicate-charge meaning.
+### 5. Cases
+Good: Filipino preview remains unchanged after selecting Japanese UI. Base: a responsive panel scrolls inside the workbench without moving canvas controls. Bad: `generation_count=10` is presented as ten individually planned slots.
+### 6. Required evidence
+Frontend lint, Vitest, TypeScript/Vite build, desktop/mobile light/dark browser screenshots, and separate Run All/prototype request counts. Retain existing branch, gallery, canvas and reference helpers.
+### 7. Wrong versus correct
+Wrong: use UI locale to change accepted copy. Correct: use `draft_content_language` and confirm the matching immutable plan revision.

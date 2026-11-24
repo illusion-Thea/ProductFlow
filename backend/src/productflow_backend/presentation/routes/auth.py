@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/session", response_model=SessionResponse)
 def create_session(payload: SessionCreateRequest, request: Request) -> SessionResponse:
     if not get_runtime_settings().admin_access_required:
+        request.session.pop("admin_key_verified", None)
         request.session["is_authenticated"] = True
         return SessionResponse()
     settings = get_settings()
@@ -22,6 +23,7 @@ def create_session(payload: SessionCreateRequest, request: Request) -> SessionRe
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="管理员密钥不正确")
     request.session.clear()
     request.session["is_authenticated"] = True
+    request.session["admin_key_verified"] = True
     return SessionResponse()
 
 
@@ -37,5 +39,5 @@ def get_session_state(request: Request) -> SessionStateResponse:
 @router.delete("/session", response_model=SessionResponse)
 def destroy_session(request: Request, response: Response) -> SessionResponse:
     request.session.clear()
-    response.delete_cookie("session")
+    response.delete_cookie(get_settings().session_cookie_name)
     return SessionResponse()

@@ -11,8 +11,12 @@ ProductFlow uses four state categories:
 1. Server state: TanStack Query in pages and `AppRoutes()`.
 2. Local UI/form state: React `useState`, `useMemo`, and `useEffect` inside page components.
 3. URL state: React Router params and navigation.
-4. Durable browser-local UI preferences: global locale/theme mode in `PreferencesProvider` plus narrowly scoped
+4. Durable browser-local UI preferences: theme mode in `PreferencesProvider` plus narrowly scoped
    page-owned workbench preferences.
+
+The current workbench UI is fixed to Chinese (2026-11-24 user confirmation). Do not read legacy
+`productflow.locale` to select a UI language. `PreferencesProvider` writes `zh-CN` and sets the document language,
+while preserving the independent theme preference. Content-language drafts and accepted previews remain server records.
 
 There is no Redux, Zustand, Jotai, custom event bus, or durable browser-local onboarding state.
 
@@ -77,7 +81,7 @@ Do not introduce a global store just to track current page or product ID; use th
 Global app preferences live in `PreferencesProvider`:
 
 - Provider: `PreferencesProvider` in `web/src/lib/preferences.tsx`, mounted once in `App.tsx` inside `BrowserRouter`.
-- Locale storage key: `productflow.locale`; default locale is `zh-CN`.
+- Legacy locale storage key: `productflow.locale`; the provider writes fixed `zh-CN` and never reads it as a language choice.
 - Theme storage key: `productflow.theme`; default preference is `system`.
 - Supported theme preferences are `light`, `dark`, and `system`; `system` resolves from `prefers-color-scheme`.
 - The provider updates `document.documentElement.lang`, root `class="dark"` when the resolved theme is dark, and root
@@ -85,8 +89,8 @@ Global app preferences live in `PreferencesProvider`:
 - Use `useI18n()` or `usePreferences()` in components that need locale/theme values; do not create page-local duplicate
   locale/theme state.
 
-Locale and theme are not server records. Do not store them in TanStack Query, add backend settings for them, or persist
-them with auth/session state unless a future product requirement explicitly changes that boundary.
+UI language is fixed and theme is a local preference. Neither is a server record. Do not store them in TanStack Query,
+add backend settings for them, or persist them with auth/session state unless a future product requirement changes that boundary.
 
 ProductDetail owns a small set of durable workbench-local browser preferences because they are specific to that page's
 canvas ergonomics rather than global app chrome:
@@ -153,3 +157,20 @@ Keep error display local unless multiple pages need a shared notification system
 - Reintroducing durable browser-local onboarding, tour, help, or tutorial state without a new approved product requirement.
 - Adding new durable local preferences outside `PreferencesProvider` or a documented page-owned feature boundary without
   updating this spec and focused helper tests when parsing/clamping behavior is non-trivial.
+
+## M1-01 prototype and execution state
+
+### 1. Scope
+The verification-only product panel uses `usePrototypeExecution`; it does not replace the existing canvas or introduce a global state store.
+### 2. Keys and signatures
+Query keys are `['prototype-experiments', productId]`, `['prototype-tasks', productId]`, `['prototype-task', taskId]`, and `['prototype-status', taskId]`. `mergePrototypeStatus(task, status)` ignores stale status versions. URL parameter `prototype` identifies the selected task or `new`.
+### 3. Contracts
+Poll lightweight status while work/unknown waits are active; refresh detail when plan/artifact/terminal state changes. Keep drafts and acknowledgement checkboxes local. Display experiment quota from fresh task status when selected. Content language is server draft state and independent of UI locale. sessionStorage may retain only a scoped idempotency key/payload digest for an unresolved intent, never product drafts or credentials.
+### 4. Error matrix
+409 retains the draft and refreshes server state; 422 renders a localized error. Lost response/503 retains the same key and queries the original intent before comparing newly fetched versions. Unknown retry is disabled until explicit fee acknowledgement; local resume/end are distinct actions.
+### 5. Cases
+Good: reloading after a committed request resolves its original operation. Base: cancel refreshes to a terminal task with unchanged quota. Bad: minting a new key because the refetched row_version changed.
+### 6. Required evidence
+`executionIntent.test.ts`, `executionApi.test.ts` and `prototypeExecution.test.ts` cover digest/replay, HTTP headers, response loss, stale status and UI-independent content. Browser checks must cover actual conflict/draft retention, unknown, local recovery and cancellation; helper tests cannot replace them.
+### 7. Wrong versus correct
+Wrong: show "base images saved" for any needs_attention state. Correct: use the server issue code and operation records; only `composition_not_implemented` describes the saved-base boundary.

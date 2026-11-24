@@ -15,6 +15,8 @@ The current form is a private single-admin instance. A self-hosted deployment re
 
 ## Feature Overview
 
+M1-01 adds prototype tasks, request accounting and controlled dispatch for a dedicated synthetic instance. See the [M1-01 verification guide](docs/garment/M1-01-VERIFICATION.en.md) for operations and isolated commands. These features require verification gates and do not support real-provider or production use. Ten base images do not establish composites, adoption or first-round quality. Historical model evidence remains separate.
+
 ### Products / Workbench
 
 - Single-admin access-key login with Cookie session access to backend APIs.

@@ -35,7 +35,6 @@ from productflow_backend.application.time import now_utc
 from productflow_backend.config import normalize_image_generation_size
 from productflow_backend.domain.durable_generation_tasks import (
     IMAGE_SESSION_GENERATION_TASK_CONTRACT,
-    QUEUE_UNAVAILABLE_DETAIL,
 )
 from productflow_backend.domain.enums import ImageSessionAssetKind, JobStatus, SourceAssetKind
 from productflow_backend.domain.errors import BusinessValidationError, NotFoundError
@@ -62,7 +61,7 @@ ATTACH_TARGET = Literal["reference", "main_source"]
 DEFAULT_SESSION_TITLE = "未命名会话"
 DEFAULT_ASSISTANT_MESSAGE = "已按本轮选择的图片上下文生成候选，你可以从任意候选继续。"
 MAX_BRANCH_CONTEXT_IMAGES = 6
-IMAGE_SESSION_GENERATION_MAX_ATTEMPTS = 3
+IMAGE_SESSION_GENERATION_MAX_ATTEMPTS = 1
 IMAGE_SESSION_GENERATION_MAX_COUNT = 10
 IMAGE_SESSION_IMAGES_API_N_MAX_COUNT = 10
 IMAGE_SESSION_CAPACITY_RETRY_DELAY_MS = 2000
@@ -434,6 +433,8 @@ def delete_image_session(
     image_session_id: str,
     storage: LocalStorage | None = None,
 ) -> None:
+    from productflow_backend.application.execution.protection import protect_session
+    protect_session(session, image_session_id)
     image_session = _get_image_session_or_raise(session, image_session_id)
     storage = storage or LocalStorage()
     session.delete(image_session)
@@ -474,6 +475,8 @@ def delete_image_session_reference_image(
     asset_id: str,
     storage: LocalStorage | None = None,
 ) -> ImageSession:
+    from productflow_backend.application.execution.protection import protect_session
+    protect_session(session, image_session_id)
     image_session = _get_image_session_or_raise(session, image_session_id)
     asset = next((item for item in image_session.assets if item.id == asset_id), None)
     if asset is None:
@@ -505,6 +508,8 @@ def _execute_image_session_round_generation(
     generation_task_id: str | None = None,
 ) -> ImageSessionRoundGenerationResult:
     """执行一轮生图，调用 AI 并保存结果到会话。"""
+    from productflow_backend.application.execution.quarantine import reject_legacy_dispatch
+    reject_legacy_dispatch()
     image_session = _get_image_session_or_raise(session, image_session_id)
     storage = storage or LocalStorage()
     generation_task = session.get(ImageSessionGenerationTask, generation_task_id) if generation_task_id else None
@@ -1172,6 +1177,14 @@ def _handle_image_generation_task_failure(
     if IMAGE_SESSION_GENERATION_TASK_CONTRACT.is_terminal(task.status):
         return
     retryable = failure_decision.retryable if failure_decision is not None else True
+    if failure_decision is not None:
+        task.progress_metadata = {
+            **(task.progress_metadata or {}),
+            "last_failure_reason": reason,
+            "last_failure_category": failure_decision.category,
+            "last_failure_retryable": retryable,
+            "retry_hint": failure_decision.retry_hint,
+        }
     if not retryable:
         _finish_image_generation_task(
             session,
@@ -1181,36 +1194,6 @@ def _handle_image_generation_task_failure(
             result_generation_group_id=result_generation_group_id,
             is_retryable=False,
         )
-        return
-    if task.attempts < IMAGE_SESSION_GENERATION_MAX_ATTEMPTS:
-        _reset_image_generation_task_for_retry(
-            session,
-            task=task,
-            progress_phase="auto_retry_queued",
-            result_generation_group_id=result_generation_group_id,
-            progress_metadata={
-                "last_failure_reason": reason,
-                "last_failure_category": failure_decision.category if failure_decision is not None else "unknown",
-                "last_failure_retryable": True,
-                "retry_hint": failure_decision.retry_hint if failure_decision is not None else "retry_later",
-                "auto_retry_attempt": task.attempts,
-                "max_attempts": IMAGE_SESSION_GENERATION_MAX_ATTEMPTS,
-            },
-        )
-        try:
-            enqueue_image_session_generation_task(task.id)
-        except Exception:  # noqa: BLE001
-            logger.exception("连续生图自动重试入队失败: task_id=%s", task.id)
-            task = session.get(ImageSessionGenerationTask, task_id)
-            if task is not None:
-                _finish_image_generation_task(
-                    session,
-                    task=task,
-                    status=JobStatus.FAILED,
-                    failure_reason=QUEUE_UNAVAILABLE_DETAIL,
-                    result_generation_group_id=result_generation_group_id,
-                    is_retryable=True,
-                )
         return
 
     _finish_image_generation_task(
@@ -1252,6 +1235,8 @@ def _handle_image_generation_task_failure_safely(
 
 def execute_image_session_generation_task(task_id: str) -> None:
     """Worker entry: queued -> running -> succeeded/failed; duplicate terminal messages no-op."""
+    from productflow_backend.application.execution.quarantine import reject_legacy_dispatch
+    reject_legacy_dispatch()
     session_factory = get_session_factory()
     session = session_factory()
     try:

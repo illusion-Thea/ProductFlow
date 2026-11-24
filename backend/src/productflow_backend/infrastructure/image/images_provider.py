@@ -34,6 +34,7 @@ from productflow_backend.infrastructure.provider_config import (
     ResolvedImageProviderConfig,
     resolve_image_provider_config,
 )
+from productflow_backend.infrastructure.provider_transport import single_request_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,9 @@ class OpenAIImagesClient:
     def _client(self) -> OpenAI:
         if not self.api_key:
             raise RuntimeError("图片供应商档案缺少 API Key")
-        kwargs: dict[str, Any] = {"api_key": self.api_key}
+        kwargs: dict[str, Any] = {
+            "api_key": self.api_key, "max_retries": 0, "http_client": single_request_http_client(),
+        }
         if self.base_url:
             kwargs["base_url"] = self.base_url
         return OpenAI(**kwargs)
@@ -183,28 +186,11 @@ class OpenAIImagesClient:
         if req_style:
             request_params["style"] = req_style
 
-        fallback_used = False
         try:
             response = client.images.generate(**request_params)
-        except Exception as exc:  # noqa: BLE001
-            if not self._should_retry_without_optional_fields(request_params):
-                logger.error("OpenAI Images API generate 失败: error_class=%s", type(exc).__name__)
-                raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
-            fallback_used = True
-            fallback_params = {
-                key: value for key, value in request_params.items() if key not in {"quality", "style"}
-            }
-            try:
-                response = client.images.generate(**fallback_params)
-                request_params = fallback_params
-            except Exception as fallback_exc:  # noqa: BLE001
-                logger.error("OpenAI Images API generate fallback 失败: error_class=%s", type(fallback_exc).__name__)
-                raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from fallback_exc
-
-        provider_output_json = self._with_productflow_metadata(
-            None,
-            notes=[OPTIONAL_FIELDS_FALLBACK_NOTE] if fallback_used else [],
-        )
+        except Exception as exc:
+            raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
+        provider_output_json = self._with_productflow_metadata(None, notes=[])
         return self._parse_response(
             response,
             model=req_model,
@@ -252,45 +238,12 @@ class OpenAIImagesClient:
             has_mask=mask is not None,
         )
 
-        fallback_notes: list[dict[str, Any]] = []
-        requested_image_count = len(image_files)
-        effective_image_count = len(image_files)
         try:
             response = client.images.edit(**request_params)
-        except Exception as exc:  # noqa: BLE001
-            fallback_params = dict(request_params)
-            can_reduce_optional = self._should_retry_without_optional_fields(fallback_params)
-            can_reduce_images = len(image_files) > 1
-            if not can_reduce_optional and not can_reduce_images:
-                logger.error("OpenAI Images API edit 失败: error_class=%s", type(exc).__name__)
-                raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
-            if can_reduce_optional:
-                fallback_params = {
-                    key: value for key, value in fallback_params.items() if key not in {"quality", "style"}
-                }
-                fallback_notes.append(OPTIONAL_FIELDS_FALLBACK_NOTE)
-            if can_reduce_images:
-                fallback_params["image"] = image_files[0]
-                effective_image_count = 1
-                fallback_notes.append(MULTI_IMAGE_FALLBACK_NOTE)
-            try:
-                response = client.images.edit(**fallback_params)
-                request_params = fallback_params
-                log_params = self._sanitize_edit_request_params(
-                    request_params,
-                    image_count=effective_image_count,
-                    image_metadata=image_metadata[:effective_image_count],
-                    has_mask=mask is not None,
-                )
-            except Exception as fallback_exc:  # noqa: BLE001
-                logger.error("OpenAI Images API edit fallback 失败: error_class=%s", type(fallback_exc).__name__)
-                raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from fallback_exc
-
+        except Exception as exc:
+            raise RuntimeError(PROVIDER_REQUEST_FAILURE_MESSAGE) from exc
         provider_output_json = self._with_productflow_metadata(
-            None,
-            notes=fallback_notes,
-            requested_image_count=requested_image_count,
-            effective_image_count=effective_image_count,
+            None, notes=[], requested_image_count=len(image_files), effective_image_count=len(image_files),
         )
         return self._parse_response(
             response,

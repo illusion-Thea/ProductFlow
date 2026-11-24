@@ -82,7 +82,12 @@ and empty/loading/error states, not tint or obscure product thumbnails.
 
 User-visible UI chrome should use the local i18n helpers instead of hard-coded one-off strings:
 
-- Translation keys live in `web/src/lib/i18n.ts`; supported locales are `zh-CN`, `en-US`, `ja-JP`, and `vi-VN`.
+- Per the user's 2026-11-24 confirmation, the current workbench UI supports Chinese only. `PreferencesProvider`
+  fixes the UI locale to `zh-CN`, ignoring legacy saved UI locales; `TopNav` has no language picker on desktop or mobile.
+- Translation keys remain in `web/src/lib/i18n.ts`. Retained `en-US`, `ja-JP`, and `vi-VN` dictionaries support legacy
+  system-label recognition and do not expose selectable UI languages. Continue using the shared translation helpers.
+- Image-copy language remains an independent business choice: Chinese (default), Malay, Indonesian, or Filipino.
+  Show those choices with Chinese labels and render each confirmed preview in its original content language.
 - Components read translations through `useI18n()` / `usePreferences()` from `web/src/lib/preferences.tsx`.
 - Pure helpers that format visible labels should accept an optional translate function or locale rather than importing
   React hooks. Examples include image-size labels, gallery size labels, and ProductDetail node display helpers.

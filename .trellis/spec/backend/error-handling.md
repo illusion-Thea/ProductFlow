@@ -482,3 +482,20 @@ plain and user-readable; do not return stack traces or provider secrets.
   `BusinessError` subclasses and leave parser/provider/internal `ValueError`s inside their owner boundaries.
 - Adding new string-suffix status checks for converted business errors; add or reuse a typed `BusinessError` subclass
   instead.
+
+## M1-01 uncertain execution results
+
+### 1. Scope
+The isolated execution API uses `ExecutionConflict`, existing business-error mapping, and explicit operation states. Unmanaged compatibility paths are not production acceptance evidence.
+### 2. Signatures
+`execution_write(request, session, route, payload, action, prepare=None)` persists a replayable response; `act_on_operation(session, operation_id, action, payload, actor)` supports `close-wait`, `retry`, `resume-local`, and `end-local`.
+### 3. Contracts
+Possible external dispatch is unknown. Closing its wait releases local capacity but preserves the original attempt, quota and null costs. An explicit retry adds an attempt and requires duplicate-charge acknowledgement. Storage recovery retains the original attempt and creates a finite LocalRecoveryExecution with a new epoch.
+### 4. Error matrix
+Missing UUID key/version: 422. Stale version, changed payload, cross-root operation or prohibited action: 409. T1 commit acknowledgement lost: 503 with same-key lookup. Storage deadline: awaiting_local_decision. Provider refusal: failed. Timeout/disconnect after intent: unknown; never imply no charge.
+### 5. Cases
+Good: local resume consumes original spool bytes with zero model calls. Base: end-local terminates a local failure. Bad: turning an external unknown into failed through end-local, or displaying a failed request as saved base images.
+### 6. Required evidence
+`test_prototype_api.py`, `test_execution_artifacts.py`, and `test_execution_constraints.py` cover lost commit receipts, stale input, closed waits, ended epochs and conflicting late hashes.
+### 7. Wrong versus correct
+Wrong: retry a transport after a response parse error. Correct: retain request ID/usage, fail local validation, and wait for explicit user action; output parse errors do not authorize another request.

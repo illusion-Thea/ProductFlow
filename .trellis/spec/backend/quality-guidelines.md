@@ -774,3 +774,21 @@ When reviewing backend changes, check:
 - Are durable workflow/image-session task failures persisted and visible through their owning status/detail APIs?
 - Are provider secrets hidden from API responses and logs?
 - Do `uv run --directory backend ruff check .` and `just backend-test` pass?
+
+## M1-01 isolated validation gate
+
+### 1. Scope
+All M1-01 validation uses `scripts/verify_m101.py`; native PostgreSQL and Redis are dedicated per-run instances. No real model or current business stack is permitted. The equivalent Ruff/pytest commands run through this runner instead of loading `.env.dev`.
+### 2. Commands
+`print-plan`, `prepare`, `preflight`, `migrate --stage expand|data|head`, `seed`, `run --mode unit|integration -- ...`, `start-app`, `start-web`, `pause-delivery`, `resume-delivery`, `stop` require `--run-id`. `add-fixture --fixture-suffix <name>` adds an empty registered database and never adopts or resets an existing one.
+### 3. Contracts
+Verify PG system identity/role/database comments, Redis marker/directory/namespace, storage paths, loopback proxy and unique cookie. Python guards install before business imports; libpq needs a separate native-driver guard. Unit mode prohibits real sockets; integration requires registered PG/Redis. Evidence, caches and build output stay under the run root.
+Integration pytest must own its worker lifecycle: pause browser publisher/scanner/workers first. The runner refuses the suite while those owned processes remain live. Verify actual Python child PID plus creation time; a Windows venv launcher PID is insufficient. Exited Windows process handles are not live workers.
+### 4. Error matrix
+Wrong endpoint, marker, cookie or escaped path: fail before connection/write. Unregistered existing database: refuse adoption. Reused PID: refuse termination. Enum/data migration failure: retain database and evidence, stop the run, never boot an unverified old worker.
+### 5. Cases
+Good: duplicate Redis delivery is tested with two independent workers and an independent transport journal. Base: inline API tests prove contracts only. Bad: browser publisher drains a deliberately queued fault fixture, or SQLite results are reported as PG/Redis acceptance.
+### 6. Required evidence
+Run complete backend tests, isolated integration tests, SDK fake-transport fault matrix, frontend lint/test/build and browser checks. Preserve failed logs and final rerun results. Inspect `commands.jsonl`, `stub-requests.jsonl`, DB counts/hashes and screenshots separately. Historical real model evidence remains unchanged and cannot establish garment fidelity.
+### 7. Wrong versus correct
+Wrong: `Start-ProductFlow.ps1` for documentation/verification. Correct: preflight a distinct run, migrate only registered databases, stop only owned verified PIDs and retain all data. Never treat a new synthetic fixture as resetting an existing experiment.

@@ -4,7 +4,8 @@ import json
 from typing import Literal
 
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import BaseModel
 
 from productflow_backend.application.contracts import (
     CopyNodeConfigV2,
@@ -20,6 +21,7 @@ from productflow_backend.infrastructure.provider_config import (
     ResolvedTextProviderConfig,
     resolve_text_provider_config,
 )
+from productflow_backend.infrastructure.provider_transport import single_request_http_client
 from productflow_backend.infrastructure.text.base import TextProvider
 
 
@@ -155,7 +157,9 @@ class OpenAITextProvider(TextProvider):
     def __init__(self, provider_config: ResolvedTextProviderConfig | None = None) -> None:
         settings = get_runtime_settings()
         resolved_config = provider_config or resolve_text_provider_config()
-        client_kwargs = {"api_key": resolved_config.api_key}
+        client_kwargs = {
+            "api_key": resolved_config.api_key, "max_retries": 0, "http_client": single_request_http_client(),
+        }
         if resolved_config.base_url:
             client_kwargs["base_url"] = resolved_config.base_url
         self.client = OpenAI(**client_kwargs)
@@ -173,22 +177,23 @@ class OpenAITextProvider(TextProvider):
         input_payload: list[dict[str, str]],
         error_label: str,
     ) -> ParsedPayloadT:
-        parse = getattr(self.client.responses, "parse", None)
-        if not callable(parse):
-            raise RuntimeError(f"{error_label} 不支持 Responses structured outputs，请更换或升级文案 provider")
-        try:
-            response = parse(
-                model=model,
-                text_format=text_format,
-                instructions=instructions,
-                input=input_payload,
-            )
-        except ValidationError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(
-                f"{error_label} 结构化输出请求失败，请确认模型和供应商支持 Responses structured outputs"
-            ) from exc
+        if not callable(getattr(self.client.responses, "create", None)):
+            raise RuntimeError("不支持 Responses structured outputs")
+        response = self.client.responses.create(
+            model=model, instructions=instructions, input=input_payload,
+            text={"format": {"type": "json_schema", "name": text_format.__name__,
+                             "schema": to_strict_json_schema(text_format), "strict": True}},
+        )
+        # Capture request identity/usage before local validation, including 200
+        # responses with malformed structured output. No parse-triggered re-call.
+        usage = getattr(response, "usage", None)
+        self.last_response_metadata = {
+            "request_id": getattr(response, "id", None),
+            "usage": usage.model_dump(mode="json") if hasattr(usage, "model_dump") else usage,
+        }
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str):
+            return text_format.model_validate_json(output_text)
         return _parsed_output(response, text_format, error_label=error_label)
 
     def generate_brief(self, product: ProductInput) -> tuple[CreativeBriefPayload, str]:

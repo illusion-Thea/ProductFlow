@@ -25,12 +25,15 @@ from productflow_backend.infrastructure.queue import (
 )
 from productflow_backend.presentation.errors import register_exception_handlers
 from productflow_backend.presentation.routes.auth import router as auth_router
+from productflow_backend.presentation.routes.execution_requests import router as execution_router
 from productflow_backend.presentation.routes.gallery import router as gallery_router
 from productflow_backend.presentation.routes.generation_queue import router as generation_queue_router
 from productflow_backend.presentation.routes.image_sessions import router as image_sessions_router
 from productflow_backend.presentation.routes.product_workflows import router as product_workflows_router
 from productflow_backend.presentation.routes.products import router as products_router
+from productflow_backend.presentation.routes.prototype_tasks import router as prototype_router
 from productflow_backend.presentation.routes.settings import router as settings_router
+from productflow_backend.presentation.routes.verification import router as verification_router
 from productflow_backend.presentation.session import ClockStableSessionMiddleware
 
 REQUEST_ID_HEADER = b"x-request-id"
@@ -46,8 +49,9 @@ def create_app() -> FastAPI:
         cleanup_old_logs(settings)
         if provider_config_tables_available():
             ensure_provider_config_bootstrapped()
-        recover_unfinished_workflow_runs()
-        recover_unfinished_image_session_generation_tasks()
+        if not settings.prototype_execution_enabled:
+            recover_unfinished_workflow_runs()
+            recover_unfinished_image_session_generation_tasks()
         yield
 
     app = FastAPI(title="ProductFlow API", version="0.1.0", lifespan=lifespan)
@@ -62,6 +66,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         ClockStableSessionMiddleware,
         secret_key=settings.session_secret,
+        session_cookie=settings.session_cookie_name,
         same_site="lax",
         https_only=settings.session_cookie_secure,
     )
@@ -78,6 +83,9 @@ def create_app() -> FastAPI:
     app.include_router(product_workflows_router)
     app.include_router(image_sessions_router)
     app.include_router(settings_router)
+    app.include_router(prototype_router)
+    app.include_router(verification_router)
+    app.include_router(execution_router)
     return app
 
 

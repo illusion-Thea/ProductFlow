@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -116,7 +117,7 @@ def test_alembic_upgrade_head_supports_sqlite(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -138,7 +139,7 @@ def test_legacy_copy_fields_migrate_to_structured_payload_and_drop_columns(
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -206,7 +207,7 @@ def test_legacy_copy_fields_migrate_to_structured_payload_and_drop_columns(
         )
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -270,7 +271,7 @@ def test_workflow_run_retryability_migration_supports_sqlite(tmp_path: Path, mon
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -305,7 +306,7 @@ def test_workflow_run_retryability_migration_supports_sqlite(tmp_path: Path, mon
         )
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -334,7 +335,7 @@ def test_workflow_run_progress_metadata_migration_supports_sqlite(tmp_path: Path
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -369,7 +370,7 @@ def test_workflow_run_progress_metadata_migration_supports_sqlite(tmp_path: Path
         )
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -402,14 +403,14 @@ def test_user_canvas_template_migration_schema_and_downgrade_support_sqlite(tmp_
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
     backend_dir = Path(__file__).resolve().parents[1]
     config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("script_location", str(backend_dir / "alembic"))
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -444,14 +445,14 @@ def test_gallery_migration_schema_and_downgrade_support_sqlite(tmp_path: Path, m
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
     backend_dir = Path(__file__).resolve().parents[1]
     config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("script_location", str(backend_dir / "alembic"))
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -487,14 +488,14 @@ def test_image_session_product_scope_cleanup_migration_supports_sqlite(tmp_path:
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
     backend_dir = Path(__file__).resolve().parents[1]
     config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("script_location", str(backend_dir / "alembic"))
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -522,7 +523,7 @@ def test_job_runs_drop_migration_and_downgrade_support_sqlite(tmp_path: Path, mo
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -539,7 +540,7 @@ def test_job_runs_drop_migration_and_downgrade_support_sqlite(tmp_path: Path, mo
     }
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
     assert "job_runs" not in inspector.get_table_names()
@@ -570,7 +571,7 @@ def test_image_session_generation_progress_migration_and_downgrade_support_sqlit
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -607,7 +608,7 @@ def test_image_session_generation_progress_migration_and_downgrade_support_sqlit
         )
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)
@@ -648,7 +649,7 @@ def test_alembic_upgrade_removes_legacy_workflow_nodes(tmp_path: Path, monkeypat
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -741,7 +742,7 @@ def test_disjoint_workflow_node_run_migration_constraints_support_sqlite(
     monkeypatch.setenv("ADMIN_ACCESS_KEY", "super-secret-admin-key")
     monkeypatch.setenv("SESSION_SECRET", "super-secret-session-key-123")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+    monkeypatch.setenv("REDIS_URL", os.environ.get("REDIS_URL", "redis://localhost:6379/9"))
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
     get_settings.cache_clear()
 
@@ -787,7 +788,7 @@ def test_disjoint_workflow_node_run_migration_constraints_support_sqlite(
         )
 
     engine.dispose()
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260627_0029")
 
     engine = sa.create_engine(f"sqlite:///{database_path}")
     inspector = sa.inspect(engine)

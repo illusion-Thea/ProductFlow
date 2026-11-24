@@ -26,6 +26,11 @@ from productflow_backend.infrastructure.db.models import (
     WorkflowNodeRun,
     WorkflowRun,
 )
+from productflow_backend.presentation.schemas.execution_requests import (
+    ExecutionSummary,
+    execution_has_open_wait,
+    execution_summary,
+)
 
 WorkflowNodeDisplayStatus = WorkflowNodeStatus | Literal["cancelled"]
 WorkflowRetryHint = Literal["retry_later", "revise_input", "check_settings"]
@@ -63,6 +68,7 @@ class WorkflowEdgeResponse(BaseModel):
 
 
 class WorkflowNodeRunResponse(BaseModel):
+    execution: ExecutionSummary | None = None
     id: str
     workflow_run_id: str
     node_id: str
@@ -76,6 +82,7 @@ class WorkflowNodeRunResponse(BaseModel):
 
 
 class WorkflowNodeRunStatusResponse(BaseModel):
+    execution: ExecutionSummary | None = None
     id: str
     workflow_run_id: str
     node_id: str
@@ -86,6 +93,7 @@ class WorkflowNodeRunStatusResponse(BaseModel):
 
 
 class WorkflowRunResponse(BaseModel):
+    row_version: int = 1
     id: str
     workflow_id: str
     status: WorkflowRunStatus
@@ -105,6 +113,7 @@ class WorkflowRunResponse(BaseModel):
 
 
 class WorkflowRunStatusResponse(BaseModel):
+    row_version: int = 1
     id: str
     workflow_id: str
     status: WorkflowRunStatus
@@ -439,6 +448,7 @@ def serialize_workflow_edge(edge: WorkflowEdge) -> WorkflowEdgeResponse:
 def serialize_workflow_node_run(node_run: WorkflowNodeRun) -> WorkflowNodeRunResponse:
     return WorkflowNodeRunResponse(
         id=node_run.id,
+        execution=execution_summary(node_run),
         workflow_run_id=node_run.workflow_run_id,
         node_id=node_run.node_id,
         status=workflow_node_run_display_status(node_run),
@@ -454,6 +464,7 @@ def serialize_workflow_node_run(node_run: WorkflowNodeRun) -> WorkflowNodeRunRes
 def serialize_workflow_node_run_status(node_run: WorkflowNodeRun) -> WorkflowNodeRunStatusResponse:
     return WorkflowNodeRunStatusResponse(
         id=node_run.id,
+        execution=execution_summary(node_run),
         workflow_run_id=node_run.workflow_run_id,
         node_id=node_run.node_id,
         status=workflow_node_run_display_status(node_run),
@@ -468,6 +479,7 @@ def serialize_workflow_run(run: WorkflowRun) -> WorkflowRunResponse:
     return WorkflowRunResponse(
         id=run.id,
         workflow_id=run.workflow_id,
+        row_version=run.row_version,
         status=run.status,
         started_at=run.started_at,
         finished_at=run.finished_at,
@@ -485,6 +497,7 @@ def serialize_workflow_run_status(run: WorkflowRun) -> WorkflowRunStatusResponse
     return WorkflowRunStatusResponse(
         id=run.id,
         workflow_id=run.workflow_id,
+        row_version=run.row_version,
         status=run.status,
         started_at=run.started_at,
         finished_at=run.finished_at,
@@ -600,7 +613,10 @@ def serialize_product_workflow_status(snapshot: ProductWorkflowStatusSnapshot) -
         product_id=workflow.product_id,
         title=workflow.title,
         active=workflow.active,
-        has_active_workflow=any(WORKFLOW_RUN_GENERATION_TASK_CONTRACT.is_active(item.status) for item in snapshot.runs)
+        has_active_workflow=any(
+            WORKFLOW_RUN_GENERATION_TASK_CONTRACT.is_active(item.status)
+            or any(execution_has_open_wait(node_run) for node_run in item.node_runs) for item in snapshot.runs
+        )
         or any(
             WORKFLOW_RUN_GENERATION_TASK_CONTRACT.execution_is_queued(item.status)
             or WORKFLOW_RUN_GENERATION_TASK_CONTRACT.execution_is_running(item.status)
