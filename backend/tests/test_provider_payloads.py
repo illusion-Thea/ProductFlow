@@ -1684,7 +1684,6 @@ def test_openai_images_provider_factory_and_client_generate_payload(
             "prompt": "生成商品图",
             "size": "1024x1024",
             "n": 1,
-            "response_format": "b64_json",
             "quality": "high",
             "style": "vivid",
         }
@@ -2201,3 +2200,61 @@ def test_openai_responses_image_client_reports_completed_text_without_image(
         OpenAIResponsesImageClient().generate_image(prompt="只返回文字", size="1024x1024")
 
     assert str(error.value) == "图片供应商已完成请求，但返回的是文字回复，没有返回图片结果"
+
+
+@pytest.mark.parametrize("method", ["generate", "edit"])
+@pytest.mark.parametrize(
+    ("configured_model", "requested_model", "expects_response_format"),
+    [
+        ("gpt-image-2.6-sunburst", None, False),
+        ("dall-e-2", None, True),
+        ("dall-e-2", "gpt-image-2.6-sunburst", False),
+        ("gpt-image-2.6-sunburst", "dall-e-2", True),
+    ],
+)
+def test_openai_images_response_format_matches_effective_model(
+    configured_env: Path,
+    monkeypatch,
+    method: str,
+    configured_model: str,
+    requested_model: str | None,
+    expects_response_format: bool,
+) -> None:
+    from productflow_backend.infrastructure.image.images_provider import ImagesReferenceImage, OpenAIImagesClient
+    from productflow_backend.infrastructure.provider_config import ResolvedImageProviderConfig
+
+    calls: list[dict] = []
+    encoded_result = _make_demo_image_data_url().split(",", maxsplit=1)[1]
+
+    class DummyImages:
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            if expects_response_format:
+                assert kwargs["response_format"] == "b64_json"
+            else:
+                assert "response_format" not in kwargs
+            return DummyImagesAPIResponse(encoded_result)
+
+        edit = generate
+
+    class DummyOpenAI:
+        def __init__(self, **kwargs) -> None:
+            self.images = DummyImages()
+
+    monkeypatch.setattr("productflow_backend.infrastructure.image.images_provider.OpenAI", DummyOpenAI)
+    client = OpenAIImagesClient(
+        ResolvedImageProviderConfig(
+            provider_kind="openai_images",
+            model=configured_model,
+            api_key="demo-api-key",
+        )
+    )
+    kwargs = {"prompt": "API compatibility", "size": "1024x1024", "model": requested_model}
+    if method == "edit":
+        kwargs["image"] = [ImagesReferenceImage(_make_demo_image_bytes(), "image/png", "reference.png")]
+    result = getattr(client, method)(**kwargs)[0]
+
+    assert len(calls) == 1
+    assert calls[0]["model"] == (requested_model or configured_model)
+    assert result.model_name == (requested_model or configured_model)
+    assert result.mime_type == "image/png"

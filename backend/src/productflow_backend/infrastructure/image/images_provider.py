@@ -179,8 +179,10 @@ class OpenAIImagesClient:
             "prompt": prompt,
             "size": size,
             "n": n,
-            "response_format": "b64_json",
         }
+        # GPT Image models always return base64 and reject response_format.
+        if not req_model.startswith("gpt-image-"):
+            request_params["response_format"] = "b64_json"
         if req_quality:
             request_params["quality"] = req_quality
         if req_style:
@@ -222,8 +224,10 @@ class OpenAIImagesClient:
             "prompt": prompt,
             "size": size,
             "n": n,
-            "response_format": "b64_json",
         }
+        # GPT Image models always return base64 and reject response_format.
+        if not req_model.startswith("gpt-image-"):
+            request_params["response_format"] = "b64_json"
         if req_quality:
             request_params["quality"] = req_quality
         if mask is not None:

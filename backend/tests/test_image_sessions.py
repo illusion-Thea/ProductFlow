@@ -2149,7 +2149,6 @@ def test_image_session_openai_images_candidate_count_sets_provider_batch_n(
             "prompt": calls[0]["prompt"],
             "size": "1024x1024",
             "n": 10,
-            "response_format": "b64_json",
         }
     ]
     payload = generated.json()
