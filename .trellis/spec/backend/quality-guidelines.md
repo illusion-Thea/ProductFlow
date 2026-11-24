@@ -1,6 +1,53 @@
 # Backend Quality Guidelines
 
+> **Garment extension applicability (2026-11-23):** Where marked below, conflicting contracts, examples, matrices, and required tests describe the legacy implementation and legacy regression expectations only; they are **not garment-extension targets or acceptance criteria**. Follow [the garment PRD](../../../docs/garment/PRD.md), [technical design](../../../docs/garment/TECH_DESIGN.md), and [development entry point](../../../docs/garment/DEVELOPMENT.md) for the extension. Unrelated engineering constraints remain applicable. Revise affected code, detailed contracts, and test expectations together during implementation; this documentation merge does not claim the remediation is complete. Free nodes and image sessions have no implicit-paid-retry exception.
+
 > Backend quality standards reflected by ProductFlow's current code, tests, and tooling.
+
+## Confirmed garment contracts to verify during implementation
+
+The following are required assertion points, not evidence of passing tests. Use the full
+[Technical Design Section 8.2 mapping](../../../docs/garment/TECH_DESIGN.md) and stable PRD acceptance IDs.
+
+- AC08/10/11/42/49: Draft exposes text preparation progress; formal task/batch is one-to-one with fixed specification;
+  Run All excludes formal slots, accepted inputs survive canvas edits, free fan-out permits different specifications;
+  ready slots revise under one active-operation lock and the current round ReleaseID while admission remains open,
+  with Generating state precedence. AC08/72 additionally require Chinese-default, explicit Chinese/Malay/Indonesian/
+  Filipino previews and confirmation snapshots independent of UI locale/market.
+- AC23/52/59/63: formal candidates and current selection are composites; undecided intermediates alone do not block
+  completion. Reused bases' first composites count with source-separated reporting. Original late results may complete
+  only unsettled assessments, never replacing originals with retries or reviving cancelled production. Metadata feedback,
+  deselection, and issue closure still work after byte deletion without rewriting settled snapshots. After a completed
+  task closed its wait, a late result stays historical until explicit inclusion; no automatic completion blocker.
+- AC62/63: base-only original slots cancelled without definite first failure leave R0 incomplete; ten model calls do not
+  prove ten complete original production outcomes. Withdrawing a generated undecided revision marks it discarded,
+  preserves the prior selection/history, and reevaluates remaining issues; no deletion or still-undecided history shortcut.
+- AC59/61: unchanged, zero-model local recovery remains the original attempt and delays settlement; automatic recovery
+  stops at its deadline pending explicit continue/end. Explicit late-base composition requires a noncancelled task,
+  unsettled assessment, original inputs, and an idle slot; preserve original provenance and actual execution identity.
+- AC68/73/78: one active team, system management, current-responsible authorization, audited same-team handoff including
+  scope permission for personal/team tasks and independent sessions; source view/download plus target write permits
+  image reuse but not whole personal-task copying. Products/free canvases are team shared; every whole-product/task/session
+  deletion archives only that root, including products without formal tasks. Revocation blocks new submissions/access
+  while accepted operations continue until explicit cancel.
+- AC67/68: archive during active work preserves progress/results; archive/admission races are serialized. Authorized
+  record management and per-image delete/restore remain available, but new content/production requires unarchive.
+  Unarchive must not restore images, reset retention/download markers, submit drafts, or revive cancelled tasks.
+- AC65/78: full settings/provider configuration/import/export require current management role plus independent unlock.
+  Test ordinary roles with the token, management without unlock, and revocation. Sanitized runtime reads stay separate;
+  raw stored keys never appear in reads, import previews, exports, or errors, and target credential readiness is explicit.
+- AC48/74/75: favorites alias source records; cross-root reuse creates independent feedback/download/retention, starting
+  30 days at reuse without inherited download markers. Layered composites retain editable layers and independent target
+  dependency records, including restoration under target rights; missing dependencies cannot silently flatten output.
+  Edit-entry confirmation restores trashed dependencies inline;
+  refusal or failed restoration blocks file editing. Test permission/version/purge races, conditional recovery after
+  seven days, reference release without clock reset, and shared bytes retained for other live versions.
+- AC84: atomically close old-round admission on retirement, drain only accepted operations and their downstream stages,
+  retain new changes as drafts, and require new-round confirmation after drain. Recovery provenance never reopens an
+  old release or rewrites the original attempt's ReleaseID.
+- AC01/85: selecting an AI display image preserves original fact evidence. Disaster-restored queued/undispatched rows
+  and quotas remain isolated until credible evidence not rolled back with that snapshot permits reconciliation; unknown
+  never auto-resubmits and used quota never resets. Local recovery causes zero additional model requests.
 
 ---
 
@@ -275,6 +322,15 @@ dependencies = WorkflowExecutionDependencies(image_provider_resolver=fake_factor
 run_product_workflow(session, product_id=product.id, dependencies=dependencies)
 ```
 
+### Images API response format compatibility
+
+- Build `response_format` from the effective request model, including per-call model overrides.
+- Models whose API ID starts with `gpt-image-` return base64 images by default and must omit `response_format` in both
+  generation and edit requests. Keep `response_format="b64_json"` for legacy DALL-E and other compatible model IDs.
+- Regression tests must exercise generation and editing, configured defaults, overrides in both directions, and the
+  image-session path. Do not remove legacy base64 requests globally when fixing GPT Image compatibility.
+- Provider reference: https://docs.apiyi.com/api-capabilities/gpt-image-2/vs-gpt-image-2-6-all
+
 ### Validate inputs at the correct boundary
 
 - FastAPI `Query` constraints are used for list pagination in `presentation/routes/products.py`.
@@ -417,6 +473,12 @@ Preserve these semantics when editing durable task code.
 
 ### Scenario: Durable generation task contract
 
+> **Extension recovery boundary:** The queued/stale-running recovery assertions below describe the legacy delivery
+> contract. Extension recovery requires dispatch intent, original request reconciliation, and conserved quotas. For
+> disaster-restored snapshots, even queued/undispatched rows may already have incurred charges after the restore point;
+> isolate and reconcile them before any redelivery that could invoke a model. Update these tests with the ledger-aware
+> implementation rather than treating an old queued state or provider lookup miss as proof of no dispatch.
+
 #### 1. Scope / Trigger
 
 - Trigger: adding or changing any database-durable async path that creates provider-backed image/copy/poster generation
@@ -540,6 +602,8 @@ def run_generation_task(task_id: str) -> None:
 
 #### Scenario: Durable async continuous image-session generation
 
+> **Legacy conflict / extension target:** The automatic retry, same-task manual retry, stale-running reset, immediate cancellation with omitted returned assets, and shared-demo ownership exemptions in this scenario are legacy contracts and test expectations. For the extension, possible dispatch becomes unknown and is never silently resent; explicit model retries create new Operation/Attempt records, while unchanged zero-model local recovery retains original-attempt provenance. SDK/provider/application/queue retries cannot create hidden paid calls. Production cancellation archives late results under the original attempt without further composition; named accounts and resource authorization also cover legacy entry points. See PRD Sections 2, 3.9, and 4.3 and Technical Design Sections 4 and 6.
+
 ##### 1. Scope / Trigger
 
 - Trigger: changing `POST /api/image-sessions/{id}/generate`, image-session generation persistence, queue delivery,
@@ -593,6 +657,8 @@ def run_generation_task(task_id: str) -> None:
 - Manual cancel sets active tasks to `cancelled`, `failure_reason = "已取消"`, `progress_phase = "cancelled"`, and
   `is_retryable=false`. Workers must re-check durable cancellation around provider execution/save boundaries and return
   without creating new rounds when cancellation is observed.
+> **Legacy retry rule below:** do not carry this automatic paid-retry contract into extension implementations or acceptance tests. Safe delivery/local-work retries must not re-enter model generation.
+
 - Worker failures must retry through application state, not Dramatiq actor retries. Keep
   `run_image_session_generation_task(max_retries=0)`, increment `attempts` on each worker claim, reset the same task to
   `queued` while the finite cap has not been reached, and leave terminal failed tasks `is_retryable=true`.
@@ -625,6 +691,8 @@ def run_generation_task(task_id: str) -> None:
 - Duplicate Redis message for `succeeded`, `failed`, `cancelled`, or `running` task -> no provider call and no new
   round/asset rows.
 - API restart with queued retryable task -> re-enqueue without changing task semantics.
+> **Legacy recovery expectation below:** heartbeat age and absence of saved candidates do not prove an external request was never sent. Recover only provably undispatched work; retain uncertain attempts and costs as unknown.
+
 - Worker restart with stale running retryable task and no completed candidates -> reset to queued and re-enqueue.
 - Worker restart with stale running partial-success task -> mark failed without retry, keeping the partial
   `result_generation_group_id`.
@@ -650,6 +718,8 @@ def run_generation_task(task_id: str) -> None:
 - Worker success test: executing a queued task creates expected assets/rounds and marks the task succeeded with
   `result_generation_group_id`.
 - Worker failure test: provider exception marks the task failed with a generic reason and does not leak the raw exception.
+> **Legacy tests below:** automatic retries and same-task resets are existing regression expectations, not extension acceptance. Update them with the corresponding no-hidden-call, new-attempt, unknown-result, and cancellation implementation.
+
 - Auto retry cap test: repeated provider failure calls the provider only up to the finite application cap, then leaves the
   task failed + retryable with `attempts` exposed in detail/status responses.
 - Manual retry route tests: failed retryable task resets to queued and enqueues; non-failed retry returns `400`; enqueue

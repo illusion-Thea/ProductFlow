@@ -13,6 +13,10 @@ ProductFlow is an open-source, self-hosted product creative workspace for solo m
 
 The current form is a private single-admin instance. A self-hosted deployment requires PostgreSQL, Redis, the backend API, Dramatiq worker, Web frontend, and usable text/image model providers.
 
+> **Scope and garment extension:** This document describes the existing application's capabilities and technical state. For garment-extension product behavior and acceptance, use [the garment PRD](docs/garment/PRD.md); implementation contracts are in [the technical design](docs/garment/TECH_DESIGN.md), and AI development starts with [DEVELOPMENT](docs/garment/DEVELOPMENT.md). The extension body is maintained in Chinese. Existing single-admin, local-storage, and legacy-execution descriptions are current-product context, not limits on the extension requirements.
+>
+> **Verification status:** This merge checks documentation only. Current-state claims not reviewed in this round and without reusable evidence remain **pending verification**; cite existing task evidence where available. Update this document and its paired language version when the corresponding feature is implemented and verified; update user-guide operations at delivery. Detailed FR/AC rules stay in the garment PRD.
+
 ## Feature Overview
 
 M1-01 adds prototype tasks, request accounting and controlled dispatch for a dedicated synthetic instance. See the [M1-01 verification guide](docs/garment/M1-01-VERIFICATION.en.md) for operations and isolated commands. These features require verification gates and do not support real-provider or production use. Ten base images do not establish composites, adoption or first-round quality. Historical model evidence remains separate.

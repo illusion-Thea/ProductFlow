@@ -1,6 +1,116 @@
 # Backend Database Guidelines
 
+> **Garment extension applicability (2026-11-23):** Where marked below, conflicting contracts, examples, matrices, and required tests describe the legacy implementation and legacy regression expectations only; they are **not garment-extension targets or acceptance criteria**. Follow [the garment PRD](../../../docs/garment/PRD.md), [technical design](../../../docs/garment/TECH_DESIGN.md), and [development entry point](../../../docs/garment/DEVELOPMENT.md) for the extension. Unrelated engineering constraints remain applicable. Revise affected code, detailed contracts, and test expectations together during implementation; this documentation merge does not claim the remediation is complete. Free nodes and image sessions have no implicit-paid-retry exception.
+
 > Actual database, ORM, migration, and query patterns used by ProductFlow.
+
+## Scenario: Confirmed garment production records (planned)
+
+### 1. Scope / Trigger
+
+Apply when implementing production identity, batches, versions, reuse, retention, or first-round assessment.
+These are confirmed target contracts, not claims about existing tables. The authoritative details are in
+[Technical Design Sections 3-6](../../../docs/garment/TECH_DESIGN.md).
+
+### 2. Signatures
+
+Use the design's proposed `ProductionTask`, `ProductionBatch`, `ProductionItem`, `CompositeVersion`,
+`ImageAssetVersion`, and `FirstRoundAssessment` contracts; map actual ORM/API names during the implementation task.
+Keep immutable `created_by_user_id` separate from `responsible_user_id`; reused records retain
+`source_asset_version_id`, `generated_at`, and `reused_at` alongside lifecycle/download fields.
+Accepted plan snapshots include `content_language`, preview version, and confirmation actor/time. Execution records
+separate original-attempt provenance from recovery execution/ReleaseID and retain accepted authorization, recovery
+deadline/decision, and current-work versus historical issue membership. These are proposed contracts, not existing columns.
+Each product/task/session root also needs archive metadata independent of task status and image lifecycle; suggested
+fields are `archived_at` and `archived_by_user_id`, with archive/unarchive history in audit records.
+
+### 3. Contracts
+
+- One formal task owns one batch with one SKU/specification and ten uniquely numbered slots. Accepted plan snapshots
+  survive canvas changes. At most one queued/running operation may own each slot.
+- Products and their free canvases are same-team shared resources. Formal tasks and independent image sessions retain
+  their own personal/team scope and responsible user. Whole-product/task/session deletion archives that root, including
+  products without formal tasks; never cascade archive, cancellation, asset deletion, or lifecycle changes to linked roots.
+- Allow archive with accepted work still queued/running and keep its results/progress accessible. Serialize archive and
+  new admission; archived roots permit authorized record management, cancellation, and per-image delete/restore, while
+  new content/production/retry/local recovery requires unarchive. Unarchive does not submit drafts, restore images,
+  reset retention, change settled statistics, or revive cancelled tasks.
+- Copy language defaults to Chinese and explicitly supports Chinese, Malay, Indonesian, and Filipino. Persist the
+  selected language and confirmed preview separately from UI locale/market; neither may silently change accepted copy.
+- Formal candidates/current selection/first-round outputs are composites. Undecided bases or masks alone do not block
+  completion. First-round source/attempt/output references and settled feedback/quality snapshots stay immutable.
+- Cancellation before composition, with no original composite or definite original failure, leaves that slot's first
+  round incomplete even if the model/base succeeded. Do not settle seven adopted composites plus three interrupted bases
+  as final 7/10. Withdrawing an already-generated undecided revision records discarded feedback and closes that candidate
+  issue transactionally, retaining the prior selection and history; it does not create another historical-undecided class.
+- Zero-model local composition/storage recovery with the original base, confirmed copy, and configuration belongs to
+  the original attempt; keep its first-round conclusion open. At its deadline, stop automatic recovery and persist a
+  pending human decision to continue or end that original attempt. Ending local recovery cannot resolve an unknown
+  external-model result or permit later repairs to replace a settled first-round result.
+- An original late result arriving after its wait was closed and the task completed is historical; it does not reopen
+  the task or add a current completion blocker automatically. Explicit inclusion changes current-work membership.
+  A late original base may be composed only explicitly, for a noncancelled task with unsettled assessment, unchanged
+  inputs, no existing original
+  composite to replace, and a free slot lock. Keep original provenance and the actual recovery execution identity.
+- Favorites alias the source business version. Cross-root reuse creates an independent target record, preserving
+  provenance without source feedback/download inheritance. Its undownloaded 30 days start at successful `reused_at`;
+  shared `AssetFile` bytes remain protected by all valid references.
+- Layered-composite reuse creates independent target composite/layer/base/mask dependency records as required for
+  editing and restoration under target permissions. Register the dependency graph atomically, retain font/template
+  resource references, and reject missing or unavailable required inputs; never silently flatten the composite.
+- One active membership per account; handoff atomically updates the current responsible user and audit, preserving
+  creator, team, scope, history, costs, and first-round records. This applies to personal/team tasks and independent
+  sessions. Scope-change permission follows that responsible user; team shared editing remains unchanged.
+- Revocation prevents new submissions/access, but previously accepted operations continue using their accepted
+  snapshot and original actor. Stopping them requires explicit cancellation by a currently authorized user.
+- Retirement closes old-round admission atomically and fixes the accepted operation set; already accepted downstream
+  stages may drain. New revisions/recoveries stay drafts until a new round is explicitly confirmed after drain.
+- Protected trashed inputs still require user-confirmed restoration before new file edits. Confirmation at the edit
+  entry invokes restoration directly, checking permission, expected version, bytes, and purge claim. After seven days,
+  restoration remains possible only while these conditions hold; releasing a reference does not reset the trash clock.
+- Feedback/deselection/issue closure remain record operations after trash or physical deletion. Keep business records
+  and settled snapshots when removing bytes; local restore/composition recovery cannot invoke a model.
+
+### 4. Validation & Error Matrix
+
+| Boundary | Required result |
+| --- | --- |
+| Duplicate batch per task, slot number, or active operation per slot | Reject atomically; no second execution |
+| Non-composite or unadopted version selected as current formal output | Reject without changing current selection |
+| Stale expected version or competing purge claim | Return the applicable conflict; never report restore success |
+| Reuse without source read/download or target write permission | Deny without creating target records/references |
+| Layered reuse lacks a required available dependency | Reject without partial target graph or silent flattening |
+| Whole-product/task/session deletion, including active work | Archive root; retain accepted execution and independent roots/assets/history |
+| New content or production submission to archived root | Reject until unarchive; preserve draft and accepted work |
+| Unarchive root containing trashed images or cancelled task | Restore root access only; preserve image lifecycle and task terminal state |
+| Cancel with base-only original slots and no definite failure | Keep first round incomplete; model success alone cannot settle R0 |
+| Withdraw generated undecided revision | Record discarded feedback, keep prior selection/history, and reevaluate other issues |
+| Local recovery reaches deadline | Stop automatic recovery; await explicit continue/end decision without settling the slot |
+| Late original result arrives after a completed task closed its wait | Archive under original attempt; no automatic reopening or selection |
+| Revoked actor has previously accepted operations | Preserve accepted execution; reject new submissions, not the accepted snapshot |
+| New revision races old-release admission closure | Serialize admission; accept before closure or retain as draft |
+| Authorized metadata update on trashed/purged output | Permit within business-state rules; leave settled assessment intact |
+
+### 5. Good/Base/Bad Cases
+
+- Base: favoriting an image keeps its existing feedback and retention.
+- Good: a live source near expiry is reused into a new task with its own full 30 days and no download marker.
+- Bad: changing one shared business version's ownership or cascading source deletion to every reuse.
+
+### 6. Tests Required
+
+When implemented, assert task/batch and active-slot uniqueness, owner/scope handoff, independent reuse lifecycle,
+favorite aliasing, restore/purge races, and metadata changes after byte removal. Verify reused-base first composites
+count in their new batch with source labels; reconciled original late results may complete only unsettled assessments.
+Also verify archive/unarchive isolation for all roots, active archive/admission races, session scopes, four-language confirmation snapshots, independent editable
+dependency graphs, accepted execution after revocation, recovery-deadline decisions, historical late-result inclusion,
+composition-before-cancel completeness, revision withdrawal, and retirement/admission races. Model retries and later repairs never replace original results; unchanged local recovery
+may finish the original attempt under the conditions above. These tests have not been established by this documentation update.
+
+### 7. Wrong vs Correct
+
+Wrong: use `created_by_user_id` forever for personal writes or restart retention by favoriting an image.
+Correct: authorize the current responsible user and start a new reuse clock only on an independent target record.
 
 ---
 
@@ -306,6 +416,8 @@ client = genai.Client(
 ```
 
 ## Scenario: Runtime admin access toggle
+
+> **Legacy conflict / extension target:** The disabled-login contracts, examples, and tests below are legacy behavior, not an extension acceptance option. The extension requires independent accounts and current resource/team authorization on all entry points; there is no shared-login gate-off bypass. Preserve the separate settings unlock boundary while migrating identity (PRD Section 2; Technical Design Section 6).
 
 ### 1. Scope / Trigger
 
@@ -657,6 +769,8 @@ return serialize_image_session_status(snapshot)
 
 ### Persistence and external side effects
 
+> **Legacy conflict / extension target:** The row/tree deletion pattern below records the current local-storage implementation. It does not establish versioned trash, successful-download retention, references/leases, or GC. For the extension, use upload intent, verified object registration, recoverable deletion, and reference-aware physical cleanup; retained version/feedback/cost/history records must survive byte deletion. Storage recovery must not trigger a new model request. Revise detailed rules and tests with the storage feature (PRD Section 3.6; Technical Design Section 5).
+
 The current pattern commits database changes before performing non-transactional file deletion:
 
 - `delete_reference_image(...)` deletes the DB row, commits, then calls `storage.delete_image_with_variants(...)`.
@@ -668,6 +782,11 @@ For create/update operations, file writes happen before adding the final DB asse
 storage root; `LocalStorage.resolve()` guards against path traversal.
 
 ## Scenario: Global generated-image gallery entries
+
+> **Extension boundary:** The no-copy gallery behavior below matches favorites that alias an existing version, including
+> its feedback, download history, retention, and source permissions. A global display surface does not grant cross-team
+> access. Attaching/reusing into another root resource creates an independent target business record with provenance;
+> it may share bytes, but must not share feedback or download/retention state (PRD Section 3.2).
 
 ### 1. Scope / Trigger
 
@@ -796,6 +915,8 @@ failures into safe persisted failure reasons instead of leaking provider details
 
 ### Scenario: Optional image-generation tool fields and automatic Images API n
 
+> **Legacy conflict / extension target:** Dropping unsupported background/tool fields and retrying, basic-tool fallback, automatic candidate-to-n batching, and their required tests below document legacy behavior. For the extension, freeze provider capabilities and confirmed inputs before dispatch; do not silently drop parameters/references or issue fallback paid requests. The prototype is serial n=1 with every real request counted; production slots retain independent plans and request accounting. Provider metadata alone does not prove accepted behavior or correct charges (PRD Sections 3.1.3, 4.3, 7.4, and 8.2; Technical Design Section 4).
+
 #### 1. Scope / Trigger
 
 - Trigger: adding or editing provider-level fields sent inside the OpenAI Responses `image_generation` tool object.
@@ -875,6 +996,8 @@ failures into safe persisted failure reasons instead of leaking provider details
   image execution, queued image-session worker execution, and serializers that expose the saved task options. The field is
   nullable; `None` means "use runtime defaults only".
 - Provider request/response JSON persisted for diagnostics must continue to sanitize base64 image data.
+> **Legacy fallback below:** this extra paid request is not permitted by the extension contract. A compatible payload must be validated before sending; later user-authorized changes/retries create separately recorded attempts. The provider fallback test below is likewise a legacy expectation.
+
 - If a provider rejects a request that contains optional tool fields, retry once with a basic tool object containing only
   `type` and `size`. If that fallback succeeds, persist a compact compatibility note in sanitized provider metadata and
   expose it through `provider_notes`; never expose the raw provider error.
@@ -1069,6 +1192,10 @@ system_prompt = settings.prompt_copy_system
 
 ## Scenario: Settings migration import and export
 
+> **Garment target:** Full settings require the current system-management role plus independent settings unlock.
+> Stored raw provider keys must not be returned by reads, previews, or exports. The existing key-bearing export DTO
+> and tests describe legacy behavior; update code, DTOs, and tests together when implementing this target.
+
 ### 1. Scope / Trigger
 - Trigger: changes to settings migration routes, settings export payloads, settings import preview/commit, provider
   profile/binding migration, or SettingsPage import/export DTOs.
@@ -1079,14 +1206,16 @@ system_prompt = settings.prompt_copy_system
 - Export API: `GET /api/settings/export -> SettingsExportDocument`.
 - Import preview API: `POST /api/settings/import/preview -> SettingsImportPreviewResponse`.
 - Import commit API: `POST /api/settings/import -> SettingsImportCommitResponse`.
-- All three routes are under `/api/settings`, require normal admin auth, and require `require_settings_unlocked`.
+- All three routes are under `/api/settings` and require `require_settings_unlocked`; the extension additionally checks
+  the current named user's system-management role, rather than trusting the legacy shared-session `require_admin` flag.
 - Export document sections: `metadata`, `runtime_config`, `provider_profiles`, and `provider_bindings`.
 
 ### 3. Contracts
-- Export is for frontend-operation settings only. It includes effective runtime values from every `CONFIG_DEFINITIONS`
-  key, plus active provider profiles and provider bindings.
-- Export must include provider API keys because the migration file is meant to let another machine use the same configured
-  providers. Normal non-export settings reads still must not echo secret values.
+- Export is for frontend-operation settings only. It includes effective values of non-secret `CONFIG_DEFINITIONS` keys,
+  plus sanitized active provider profiles and provider bindings.
+- The legacy export includes provider API keys. For the extension, exclude stored raw keys from export as well as normal
+  reads and previews; retain only necessary configured-state indicators. An authorized credential input is write-only,
+  not permission to echo previously stored keys. Freeze separate input/output DTO changes during implementation.
 - Export must not include deployment/infrastructure environment settings such as `DATABASE_URL`, `REDIS_URL`,
   `SESSION_SECRET`, `ADMIN_ACCESS_KEY`, `SETTINGS_ACCESS_TOKEN`, CORS origins, ports, or storage paths.
 - `runtime_config` must contain the current effective value, not only database override rows, so a clean target machine can
@@ -1097,6 +1226,9 @@ system_prompt = settings.prompt_copy_system
   all change together or not at all.
 - Provider bindings must be validated after imported profiles are normalized so non-mock bindings never point to missing,
   disabled, or capability-incompatible profiles.
+- Target credential availability must be validated separately: a sanitized export does not transfer credentials or prove
+  the target provider is callable. Explain missing credentials and require authorized setup; do not silently clear an
+  existing key or report a configured provider as ready merely because import metadata succeeded.
 
 ### 4. Validation & Error Matrix
 - Malformed document -> `400` with `配置文件格式不正确`.
@@ -1108,10 +1240,12 @@ system_prompt = settings.prompt_copy_system
 - Empty provider name -> `400` with `供应商名称不能为空`.
 - Unsupported provider type/capability/kind/purpose -> `400` with a concise provider configuration error.
 - Non-mock binding without a valid compatible enabled provider profile -> `400` and no partial import.
+- Missing current management role or independent settings unlock -> deny full settings access; a token alone cannot
+  grant management. Ordinary business users retain separate sanitized runtime capability/specification reads.
 
 ### 5. Good/Base/Bad Cases
-- Good: export from a configured workspace, import into a clean workspace, and see the same settings page values,
-  provider profiles, bindings, and provider API keys.
+- Good: export sanitized settings/profiles/bindings; importing on a clean target reports credentials needing authorized
+  setup without returning source keys or claiming provider readiness prematurely.
 - Good: preview an import file and show counts plus whether API keys are present before commit.
 - Base: importing a `mock` text/image binding uses no provider profile id.
 - Bad: exporting `ADMIN_ACCESS_KEY` or `SETTINGS_ACCESS_TOKEN`; these protect access and belong to deployment setup.
@@ -1119,8 +1253,9 @@ system_prompt = settings.prompt_copy_system
 
 ### 6. Tests Required
 - Settings export regression asserting runtime config includes every `CONFIG_DEFINITIONS` key and excludes env-only keys.
-- Export regression asserting provider API keys are present only in the export document, not in ordinary settings/profile
-  reads.
+- Extension regression asserting raw keys are absent from exports, previews, normal reads, and errors; key-presence
+  expectations in legacy export tests must change with the implementation.
+- Authorization regression for ordinary roles with the settings token, management without unlock, and revoked management.
 - Import preview regression asserting no database mutation.
 - Import commit regression asserting runtime config, provider profiles, and bindings update together.
 - Import failure regression asserting invalid version/config/binding keeps existing settings and providers unchanged.

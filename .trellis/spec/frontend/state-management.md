@@ -24,6 +24,19 @@ There is no Redux, Zustand, Jotai, custom event bus, or durable browser-local on
 
 ## Server State
 
+> **Garment extension target:** The shared-login fields below describe the existing app. Named identity, one active team,
+> current membership, and server-authorized resource access supersede shared-gate bypass for the extension. System
+> management does not grant ordinary editing of others' personal tasks. Audited handoff applies to personal/team tasks
+> and independent image sessions: personal editing and scope-change permission follow the current responsible user;
+> team shared editing remains unchanged and original creator identity remains historical. Products/free canvases are
+> team shared; formal tasks and sessions use their own scope. Revocation blocks new submissions/access, while accepted
+> operations continue unless explicitly cancelled by a currently authorized user.
+
+For garment full settings/provider/import-export queries, require the current management role and independent settings
+unlock; neither is sufficient alone. Business pages may load necessary sanitized runtime capabilities/specifications.
+Do not cache returned raw credentials or treat an old unlock flag as authorization after a role change; settings reads,
+previews, and exports must omit stored raw keys. These are target checks to implement alongside named identity.
+
 Server state is loaded through `web/src/lib/api.ts` and cached by TanStack Query. The `QueryClient` is created once in
 `web/src/App.tsx` with `refetchOnWindowFocus: false`.
 
@@ -62,6 +75,42 @@ Keep short-lived UI state local to the page that owns the interaction:
 
 Local state should not duplicate server records unless the user is editing a draft. For example, `SettingsPage.tsx` creates
 `drafts` from fetched config so the user can edit before saving; product details themselves remain in TanStack Query.
+
+For the garment extension, local preview selection, base-image selection, and canvas-node selection do not adopt an
+output. Persist formal composite feedback/current selection and first-round assessment on the server, keeping settled
+snapshots independent of later feedback. Refresh affected queries after feedback, reuse, restore, or handoff; independent
+reuse records do not share feedback/download/retention cache state just because they share bytes. Favorites use the source
+version's state and permissions. See [the garment PRD](../../../docs/garment/PRD.md) and
+[Technical Design Sections 4-6](../../../docs/garment/TECH_DESIGN.md) for the planned contracts.
+
+Copy language is business state, with Chinese as default and explicit Chinese/Malay/Indonesian/Filipino choices.
+Keep the selected-language preview and its confirmation in server version records; selector drafts may be local.
+Opening the Chinese workbench or changing market does not translate or replace confirmed copy. Require a generated preview in the chosen language
+and confirmation before composition; requests to generate new text are distinct from zero-model local text edits.
+
+Show server recovery status and finite deadlines. Expiry pauses automatic local recovery for an explicit continue/end
+decision, without automatically settling first-round failure. A late result after a completed task closed its wait
+stays in history and does not optimistically reopen the task; explicit inclusion, late-base composition, and any new
+round require server acceptance. On old-release admission closure, keep new edits as drafts until a new round is confirmed.
+
+Layered reuse must return target-owned layer/dependency records, so edit/restore actions use target permissions and
+version IDs even when file bytes are shared. Whole-product/task/session deletion archives that root, including products
+without formal tasks. Refresh list/archive/detail visibility without deleting linked roots or asset cache records;
+their independent permissions, availability, and retention still apply. Keep accepted-work progress/results accessible.
+Archived roots permit authorized record management, cancellation, and per-image deletion/restoration, but new content,
+generation, retry, or explicit local recovery requires unarchive. Preserve drafts on rejection; unarchive does not submit
+them, restore images, reset retention, or revive cancelled tasks. Root archive is separate server state from task status.
+
+Display incomplete first-round progress when cancellation leaves original bases without composites or definite original
+failure; do not derive final 7/10 from model success counts. Withdrawing an already-generated undecided revision uses a
+server mutation to mark it discarded and retain prior selection/history; do not locally hide it while feedback remains
+undecided. Refresh candidate feedback, selection, and completion state together. Unsubmitted drafts may be removed locally.
+
+Keep restoration confirmation and pending editor drafts as local UI state. On confirmation, call the controlled restore
+operation from the current edit entry; only successful restoration plus current input availability enables the edit.
+On refusal show “不恢复所需图片，当前成品图无法修改”. Retain drafts on failure and expose its cause; do not require recycle-bin
+navigation or optimistically mark a dependency live. Metadata feedback/deselection/issue closure does not require file
+restoration. Implement and verify these behaviors when the corresponding APIs become available.
 
 ## URL and Navigation State
 

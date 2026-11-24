@@ -1,5 +1,7 @@
 # Backend Error Handling
 
+> **Garment extension applicability (2026-11-23):** Where marked below, conflicting contracts, examples, matrices, and required tests describe the legacy implementation and legacy regression expectations only; they are **not garment-extension targets or acceptance criteria**. Follow [the garment PRD](../../../docs/garment/PRD.md), [technical design](../../../docs/garment/TECH_DESIGN.md), and [development entry point](../../../docs/garment/DEVELOPMENT.md) for the extension. Unrelated engineering constraints remain applicable. Revise affected code, detailed contracts, and test expectations together during implementation; this documentation merge does not claim the remediation is complete. Free nodes and image sessions have no implicit-paid-retry exception.
+
 > Actual error propagation and API error response patterns used by ProductFlow.
 
 ---
@@ -168,6 +170,45 @@ if product is None:
 
 ## Authentication and Session Errors
 
+> **Legacy conflict / extension target:** The shared session flag and disabled-login bypass below describe the original application. The garment extension requires stable named identities, current membership checks, and server-side resource authorization, including old routes; disabling a shared gate must not bypass those checks. The independent settings boundary still applies. Detailed migration behavior and tests change with the account implementation (PRD Section 2; Technical Design Section 6).
+
+For the extension, account membership is one active team and management is a system role. Personal writes and scope
+changes require the current responsible user, including after an audited handoff; immutable creator identity does not
+retain those rights automatically. Management can hand off a disabled/departed responsible user's personal task to an
+enabled same-team member through the dedicated audited operation, without acquiring ordinary personal-task editing.
+The same handoff applies to team tasks and independent sessions, preserving creator/team/scope/history; team shared
+editing remains unchanged. Products/free canvases allow same-team edits, while tasks/sessions retain their own scope.
+Live source-image reuse checks source view/download and target write permissions, not source-task edit permission.
+Reject new submissions/access after revocation, but preserve previously accepted execution using its authorization/input
+snapshot and original actor. A currently authorized user must explicitly cancel to stop accepted operations.
+Whole-product/task/session deletion means root archive, including products without formal tasks. Accept archive during
+active work without dropping its result; new content/production needs unarchive, while authorized record management and
+per-image lifecycle actions remain available. Unarchive does not restore image bytes or cancel a task's terminal state.
+Full settings, provider configuration, and import/export require current management role plus independent unlock;
+ordinary business accounts read only necessary sanitized runtime capabilities. Never echo stored raw keys in errors,
+reads, previews, or exports.
+
+Restore and metadata errors follow [Technical Design Sections 5-6](../../../docs/garment/TECH_DESIGN.md):
+
+| Condition | Required handling when implemented |
+| --- | --- |
+| Required edit input is trashed | Report the dependency and offer confirmation at the edit entry; no silent read/restore |
+| User confirms restoration | Invoke controlled restoration there; recheck permission/version/file/purge and proceed only after success |
+| User declines restoration | Show “不恢复所需图片，当前成品图无法修改”; do not start file edits |
+| Restore lacks permission, file is purged, or purge is in progress | Explain the applicable cause; retain the draft and block file edits |
+| Trash age exceeds seven days but file exists and purge has not begun | Do not reject solely for age; apply normal restore authorization |
+| Authorized feedback/deselection/issue closure on a trashed/purged image | Apply metadata changes without requiring file restoration; retain settled first-round snapshots |
+| Layered reuse lacks an available required source dependency | Explain the dependency and block editable reuse; no partial target graph or silent flattening |
+| Original-attempt local composition/storage recovery reaches deadline | Stop automatic recovery and await explicit continue/end; do not auto-settle the slot or call a model |
+| Late-base composition conflicts with a busy slot, cancellation, or settled assessment | Reject the action without changing original provenance or silently queuing a model request |
+| Revision arrives after old-round admission closes | Keep the draft and require new-round confirmation after drain |
+| Archived root receives new content, generation, retry, or explicit local recovery | Return a state conflict and retain draft; require unarchive, without cancelling accepted work |
+| Root is unarchived but required image is still trashed/purged | Preserve lifecycle and explain separate restore/availability requirements |
+| Non-management user has settings token, or management lacks independent unlock | Deny full settings access; keep authorized sanitized runtime reads separate |
+
+Use the existing domain/presentation error boundary; implementation tests must cover these outcomes, including a
+permission change or GC claim between the prompt and confirmation. Confirmation never bypasses server authorization.
+
 `presentation/deps.py::require_admin` protects private API routes with a session flag when
 `get_runtime_settings().admin_access_required` is true. It raises:
 
@@ -251,6 +292,13 @@ file paths, or tracebacks must fall back to the generic queue/provider failure d
 
 ### Scenario: Continuous image-session worker partial-success and timeout handling
 
+> **Legacy conflict / extension target:** Automatic paid retries, same-task reset, timeout-to-definite-failure conversion, and partial-success auto-resumption below are legacy contracts/examples/test expectations. Extension execution must record dispatch intent and finite deadlines, retain possible dispatch as unknown, and use new attempts only for explicit user retries. Saved results and possible charges remain attributable to their original request. Querying an existing provider response and safe delivery retries may continue only when they cannot create another generation request (PRD Section 4.3; Technical Design Section 4).
+
+Disaster restore requires an additional check: restored queued/undispatched rows and quota counters may predate actual
+calls. Quarantine affected model execution/delivery/quotas and reconcile against credible evidence that was not rolled
+back. A provider lookup miss is not proof of no dispatch. Without proof, preserve unknown outcomes and unconfirmed
+costs; do not release used quota or automatically resubmit (Technical Design Section 7.8).
+
 #### 1. Scope / Trigger
 
 - Trigger: changing continuous image-session generation, Dramatiq worker actors, generation task recovery, or provider
@@ -311,6 +359,8 @@ file paths, or tracebacks must fall back to the generic queue/provider failure d
   `updated_at`/title touches should use tolerant SQL `UPDATE image_sessions ... WHERE id = ...`-style updates instead of
   requiring a live parent ORM instance, because the session row may have been deleted or a previously loaded ORM row may
   be stale while a worker is settling provider failure.
+> **Legacy retry branch:** the following application retry cap does not satisfy the extension prohibition on implicit paid retries; keeping Dramatiq at zero retries is only one part of that contract. The matching error matrix, examples, and required tests below must be revised with the code.
+
 - Worker-owned failed/timeout tasks use application-level retry instead of Dramatiq actor retries:
   - `workers.run_image_session_generation_task` must keep `max_retries=0`.
   - each worker claim increments `ImageSessionGenerationTask.attempts`.

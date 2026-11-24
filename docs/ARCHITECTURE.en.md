@@ -4,6 +4,10 @@
 
 Current architecture health, completed cleanup, and remaining risks are tracked in `docs/ARCHITECTURE_HEALTH_REVIEW.en.md`; this document stays focused on system structure.
 
+> **Scope and garment extension:** This document describes the existing application's capabilities and technical state. For garment-extension product behavior and acceptance, use [the garment PRD](./garment/PRD.md); implementation contracts are in [the technical design](./garment/TECH_DESIGN.md), and AI development starts with [DEVELOPMENT](./garment/DEVELOPMENT.md). The extension body is maintained in Chinese. Existing single-admin, local-storage, and legacy-execution descriptions are current-product context, not limits on the extension requirements.
+>
+> **Verification status:** This merge checks documentation only. Current-state claims not reviewed in this round and without reusable evidence remain **pending verification**; cite existing task evidence where available. Update this document and its paired language version when the corresponding feature is implemented and verified; update user-guide operations at delivery. Detailed FR/AC rules stay in the garment PRD.
+
 ## 1. System Overview
 
 ProductFlow consists of the frontend, backend API, background worker, PostgreSQL, Redis, and local file storage:

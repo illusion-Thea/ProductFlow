@@ -2,6 +2,104 @@
 
 > Frontend contracts for the product detail node workbench.
 
+## Scenario: Garment production alongside free nodes (planned)
+
+### 1. Scope / Trigger
+
+Apply when adding formal batches, version feedback, cross-resource reuse, or restore-to-edit to the workbench.
+The existing free-node contracts below remain applicable within that scope. Target product behavior comes from
+[the garment PRD](../../../docs/garment/PRD.md) and [Technical Design Sections 4-6](../../../docs/garment/TECH_DESIGN.md);
+this section does not claim the UI or APIs are already implemented.
+
+### 2. Signatures
+
+Keep requests in `web/src/lib/api.ts` and DTOs in `web/src/lib/types.ts`. `runProductWorkflow(...)` / Run All is the
+free-node action. Formal confirm-and-generate needs its own accepted plan snapshot and server operation identity;
+map its concrete method/route in the implementation task. Suggested feedback/selection/restore interfaces are in
+Technical Design Section 5.6, including `POST /assets/{version_id}/restore` with idempotency and expected version.
+
+### 3. Contracts
+
+- Product data/free canvas are editable by current same-team members. Formal tasks and independent sessions retain
+  personal/team scope and responsible-user permissions. Whole-product/task/session deletion archives that root, including
+  products without formal tasks; keep authorized archive access and independent image lifecycle. Accepted work continues
+  with visible progress/results. Archived roots allow record management, cancellation, and per-image delete/restore;
+  new content/production/retry/local recovery requires unarchive. Unarchive neither restores images nor revives cancelled tasks.
+- A formal task has one batch, one specification, and ten slots. Three specifications require three tasks/batches;
+  a single source image may still feed free generation nodes with different specifications.
+- Run All cannot start or rerun formal slots. Editing/deleting a canvas node cannot alter accepted formal plan snapshots.
+  Saving a free-node inspector draft before execution does not reconfirm or overwrite a formal plan.
+- Draft includes queued/running/failed text preparation. Only validated ten-entry plans enter generation confirmation.
+  Ready slots may revise while initial work continues elsewhere; block another generation/revision submission to a slot
+  whose operation is queued/running, while keeping existing authorized images available for preview, feedback, and
+  download. Use server state/ReleaseID and admission state. Initial in-flight work keeps Generating precedence over
+  Revising. When an old release retires, keep new edits as drafts; confirm a new round after accepted work drains.
+- Offer Chinese (default), Malay, Indonesian, and Filipino copy language independently of UI locale/market. Generate
+  the selected-language preview, then confirm its language/version before composition. Do not silently translate on
+  locale/market changes or count new text-model generation as a zero-model layout/text edit.
+- Formal deliverable candidates, current selection, and first-round feedback use composites. Base/mask previews and
+  downloads remain available, but undecided intermediates alone do not block completion. Display fresh/reused sources
+  separately; selecting a node image or preview never adopts it or rewrites a settled assessment.
+- Cancellation with base-only original slots and no definite failure keeps first-round progress incomplete. Withdrawing
+  an already-generated undecided revision marks it discarded and preserves prior current selection/history; it cannot
+  remain undecided while silently disappearing from completion checks. Unsubmitted drafts may be withdrawn directly.
+- Original-attempt local recovery with unchanged inputs and no model call keeps its first-round conclusion open.
+  At the deadline show explicit continue/end actions. Late results after a completed task closed its wait remain in
+  history until explicit inclusion; a permitted late-base composition also needs explicit action and an idle slot.
+- Favorites retain the source version and its permissions/state. Reuse into another root checks source view/download
+  and target write permissions and returns an independent target record, with its own 30-day clock and no inherited
+  successful-download marker. This action does not grant copying the whole source personal task.
+- Reusing a layered composite preserves editable layers and independent target dependency records. Subsequent edits
+  and inline restores use target rights. Missing source dependencies block editable reuse rather than silently flattening.
+- Display-main selection must preserve real product originals and their evidence roles. Do not show a generated main
+  image as a newly verified product original.
+- If an edit needs a trashed image, identify it and ask for restoration at that entry. User confirmation invokes system
+  restoration directly; require success and available inputs before editing. The user need not find the image in the
+  recycle bin. Feedback/deselection/issue closure remain available with write permission even after byte removal.
+- Preview/link creation is not a successful download. Use the version-specific authorized transfer contract; do not
+  infer permanent retention from preview fallback, an anchor click, or browser download initiation.
+
+### 4. Validation & Error Matrix
+
+| Condition | UI behavior |
+| --- | --- |
+| Text preparation failed | Keep Draft and saved content; show concrete failure and permitted next action |
+| Formal confirmation conflicts with server version | Keep draft and present conflict; no silent rerun |
+| Copy language changes | Generate and show that language's preview; require new confirmation before composition |
+| Local recovery deadline expires | Show pending continue/end decision; do not show settled first-round failure |
+| Historical late result arrives after completion | Update history; leave main state/selection unchanged until explicit inclusion |
+| Old round no longer accepts operations | Preserve edit draft and explain new-round confirmation after drain |
+| Archived root receives new content or production | Keep draft, explain unarchive requirement; keep accepted-work progress visible |
+| User unarchives root | Refresh root access; preserve image lifecycle/download clocks and cancelled terminal state |
+| Cancellation leaves original base-only slots without definite failure | Show incomplete first-round progress, without final 7/10 claim |
+| User withdraws generated undecided revision | Await authoritative discarded feedback and unchanged prior selection; retain history |
+| Required dependency is trashed and user confirms | Restore inline through API; wait for successful authoritative result |
+| User refuses restoration | Show “不恢复所需图片，当前成品图无法修改” and block file edits |
+| Restore fails, permission changes, or purge starts | Keep draft, explain cause, and block edits; do not report success |
+| Trashed/purged image only needs feedback or deselection | Allow the authorized record mutation without forcing restoration |
+
+### 5. Good/Base/Bad Cases
+
+- Base: a free node uses a selected reference to generate its configured size.
+- Good: a finished formal slot is revised while other initial slots run, without changing their inputs or ReleaseID.
+- Bad: Run All replays a formal batch, or opening a preview implicitly adopts an image.
+
+### 6. Tests Required
+
+When implemented, verify separate submission/immutable snapshots, mixed free specifications, text progress, per-slot
+busy state, composite-only adoption, source-separated statistics, and reuse/favorite identity. Browser checks must cover
+inline restore confirmation/refusal/failure, permission changes, retained drafts, and unavailable-file metadata actions.
+Also cover shared product versus task/session scopes, archive access, four-language preview confirmation, editable
+dependency reuse, local recovery decisions, historical late results, and draft preservation during release retirement.
+Verify active archive/admission races, independent unarchive/image restore, incomplete cancelled first rounds, and
+generated-revision withdrawal without deletion or silent undecided history.
+These are future assertion points, not results of this documentation update.
+
+### 7. Wrong vs Correct
+
+Wrong: silently read a protected trashed base, or send the user to search the recycle bin after accepting restoration.
+Correct: restore the identified dependency from the edit entry after confirmation, then allow editing only on success.
+
 ## Scenario: Product detail DAG workbench UI
 
 ### 1. Scope / Trigger
@@ -13,6 +111,7 @@
 
 - API methods live only in `web/src/lib/api.ts`:
   - `getProductWorkflow(productId)`
+  - `getProductWorkflowStatus(productId)`
   - `createWorkflowNode(productId, input)`
   - `updateWorkflowNode(nodeId, input)`
   - `updateWorkflowNodeCopy(nodeId, input)`
@@ -21,7 +120,7 @@
   - `createWorkflowEdge(productId, input)`
   - `deleteWorkflowEdge(edgeId)`
   - `runProductWorkflow(productId, input?)`
-- DTOs live only in `web/src/lib/types.ts`: `ProductWorkflow`, `WorkflowNode`, `WorkflowEdge`, `WorkflowRun`,
+- DTOs live only in `web/src/lib/types.ts`: `ProductWorkflow`, `ProductWorkflowStatus`, `WorkflowNode`, `WorkflowEdge`, `WorkflowRun`,
   `WorkflowNodeRun`.
 - Query key: `['product-workflow', productId]`.
 
@@ -140,8 +239,10 @@
   `['product-workflow', productId]`; deleting a node must not be represented by local-only filtering because connected
   edges and run history cleanup are backend responsibilities.
 - Workflow execution is asynchronous from the frontend perspective: `runProductWorkflow(productId, input?)` returns the
-  persisted kickoff state, then the page polls `['product-workflow', productId]` while any run is `running` or any node is
-  `queued` / `running`. Run history must use backend `is_retryable` for retry actions. Cancellation belongs in the
+  persisted kickoff state, then the page polls lightweight `['product-workflow-status', productId]` while any run is
+  `running` or any node is `queued` / `running`. Merge status into the full workflow cache; refresh complete workflow and
+  artifacts when outputs change or execution completes, without repeatedly polling full history. Run history must use
+  backend `is_retryable` for retry actions. Cancellation belongs in the
   selected node detail actions when the selected node is part of a cancelable active run; cancel buttons call the workflow
   cancel API and must not be local-only state.
 - ProductDetail run history should display both workflow-run and node-run status details. Each run card should surface
@@ -169,7 +270,8 @@
   after success. Show `ApiError.detail` when active workflow runs block deletion.
 - `reference_image` nodes use `uploadWorkflowNodeImage(...)` for manual uploads and can also be filled by upstream
   `image_generation` nodes.
-- A `reference_image` node is a single current-image slot. When manual upload or upstream `image_generation` fills a slot,
+- A free `reference_image` node is a single current-image slot; this is not a formal production item's adopted selection.
+  When manual upload or upstream `image_generation` fills a slot,
   the UI should treat the returned single `source_asset_ids[0]` / `image_asset_ids[0]` as the node's current image and rely
   on product source-asset/history artifact surfaces for older replaced assets. Do not hide multi-image output only in the
   frontend; the backend contract must replace the node output.
@@ -211,9 +313,11 @@
   backend materialized poster filename convention `poster-{poster_variant_id}.*` is only a legacy fallback when an older
   API payload lacks the explicit SourceAsset field; do not apply it when `source_poster_variant_id` is present and null, or
   user-uploaded reference images with the same filename would be over-filtered.
-- Image download links should use `download_url` when available and fall back to preview URLs only when needed. Always pass
-  backend URLs through `api.toApiUrl(...)`, use short visible copy such as `下载`, stop propagation inside node cards, and
-  sanitize generated filenames so product names cannot introduce path separators or control characters.
+- Legacy image downloads use `download_url` when available and may fall back to preview URLs. For the garment extension,
+  use the authorized version-specific transfer route and its completion ledger; preview fallback cannot implement that
+  download contract. If the controlled download is unavailable, show the cause instead of silently downloading a preview.
+  Always pass backend URLs through `api.toApiUrl(...)`, use short visible copy such as `下载`, stop propagation inside node
+  cards, and sanitize generated filenames so product names cannot introduce path separators or control characters.
 - User-visible copy should be short utility labels such as `商品`, `参考图`, `文案`, `生图`, `运行`, `连接`, `删除`.
 - An idle `product_context` node is usable static context and should not be labeled as `未运行`; display it as available
   context while leaving real generative/action nodes to use the generic idle label.

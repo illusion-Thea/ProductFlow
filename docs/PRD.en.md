@@ -2,6 +2,10 @@
 
 [中文](PRD.md) | English
 
+> **Scope and garment extension:** This document describes the existing application's capabilities and technical state. For garment-extension product behavior and acceptance, use [the garment PRD](./garment/PRD.md); implementation contracts are in [the technical design](./garment/TECH_DESIGN.md), and AI development starts with [DEVELOPMENT](./garment/DEVELOPMENT.md). The extension body is maintained in Chinese. Existing single-admin, local-storage, and legacy-execution descriptions are current-product context, not limits on the extension requirements.
+>
+> **Verification status:** This merge checks documentation only. Current-state claims not reviewed in this round and without reusable evidence remain **pending verification**; cite existing task evidence where available. Update this document and its paired language version when the corresponding feature is implemented and verified; update user-guide operations at delivery. Detailed FR/AC rules stay in the garment PRD.
+
 ## 1. Product Positioning
 
 ProductFlow is an open-source, self-hosted product creative workspace for solo merchants, small operations teams, and developers who want to manage AI creative workflows on their own infrastructure.
@@ -32,7 +36,7 @@ Non-target users: teams that need multi-tenant isolation, complex RBAC, payment 
 
 ### 3.2 Iterative Image Sessions
 
-1. Create a standalone image session, optionally attached to a product.
+1. Create a standalone image session; generated assets can later be explicitly attached to a selected product.
 2. Upload multiple reference images.
 3. Enter a prompt to generate images.
 4. Continue from any generated candidate, or explicitly select reference images for the next generation round.

@@ -1,5 +1,7 @@
 # Backend Product Workflow DAG Guidelines
 
+> **Garment extension applicability (2026-11-23):** Where marked below, conflicting contracts, examples, matrices, and required tests describe the legacy implementation and legacy regression expectations only; they are **not garment-extension targets or acceptance criteria**. Follow [the garment PRD](../../../docs/garment/PRD.md), [technical design](../../../docs/garment/TECH_DESIGN.md), and [development entry point](../../../docs/garment/DEVELOPMENT.md) for the extension. Unrelated engineering constraints remain applicable. Revise affected code, detailed contracts, and test expectations together during implementation; this documentation merge does not claim the remediation is complete. Free nodes and image sessions have no implicit-paid-retry exception.
+
 > Executable contracts for the ProductFlow-native product workbench DAG.
 
 ## Scenario: Canvas template v1 contract
@@ -456,6 +458,37 @@ returns the normal `ProductWorkflow`.
 
 ## Scenario: Product workflow DAG persistence and execution
 
+> **Formal-production boundary (planned):** The graph contract below describes free-node execution. Formal production
+> uses one task/one batch/one specification/ten slots and a separate confirm-and-generate operation. Run All only runs
+> free nodes; accepted formal plans are immutable snapshots and survive later canvas edits or deletion. One source may
+> feed free nodes with different specifications. Graph output counts and node-current images do not establish formal
+> slots, adopted composites, or first-round statistics (PRD Sections 3.1-3.3; Technical Design Section 4).
+
+When implementing the bridge, preserve product-original evidence separately from display-main selection. Existing
+main-image attachment can relabel generated output as `ORIGINAL_IMAGE` and demote a true original; do not use that
+display choice or the current-source fallback below as new product fact evidence. Bind accepted formal plans to explicit
+evidence/version references. Cross-root image reuse checks source view/download and target write rights and creates an
+independent target record; the same-product node binding rules below do not grant source-task mutation rights.
+Product data/free canvas are same-team shared resources; formal tasks and independent sessions retain their own scope.
+Whole-product/task/session deletion archives only that root, including products with only free nodes. Accepted work
+continues and remains visible in archive; new content/production requires unarchive. Existing authorized record and
+per-image management remain available, and unarchive does not reset image lifecycle or revive cancelled work.
+Linked roots remain independent. Layered reuse also copies necessary business dependency records into the target root,
+preserving editable layers and target-authorized restoration while immutable file bytes may remain shared.
+
+Formal copy preparation uses an explicit Chinese-default choice of Chinese, Malay, Indonesian, or Filipino, followed
+by selected-language preview and confirmation. Snapshot that language/preview independently of UI locale, market, and
+legacy node `template_language`; existing template settings do not establish this formal confirmation contract.
+
+Implementation verification must cover Run All leaving formal slots untouched, canvas mutations leaving accepted
+snapshots intact, multi-specification free fan-out, and preserving real originals when selecting an AI display image.
+Ready formal slots may revise while other initial slots run, with one active operation per slot and the current round's
+ReleaseID while admission is open. Retirement closes new-operation admission; only accepted work and downstream stages
+drain, with new changes kept as drafts for explicit new-round confirmation. Node overwrite/completion must never
+implicitly adopt a composite or change settled first-round snapshots. Unchanged zero-model local recovery can finish
+the original attempt; finite deadlines require a continue/end decision. Historical late results do not reopen completed
+work without explicit inclusion, and late-base composition must satisfy Technical Design Section 4.5.
+
 ### 1. Scope / Trigger
 
 - Trigger: any change to product workbench DAG persistence, node execution, run history, or artifact write-back.
@@ -857,6 +890,8 @@ and workflow runs share the same behavior.
 
 ## Scenario: OpenAI text provider structured outputs
 
+> **Legacy conflict / extension target:** The provider-contract retry loop after structured-output validation failure below is legacy behavior. The no-implicit-paid-retry contract covers text as well as image calls. Invalid or incomplete text remains pending user action, with its original ModelCall recorded; it must not silently trigger another text request, template substitution, or image generation. Keep schema validation and capability checks, and update retry expectations with the corresponding implementation (PRD Sections 3.1.3 and 4.3; Technical Design Sections 4.1 and 4.3).
+
 ### 1. Scope / Trigger
 
 - Trigger: any change to `OpenAITextProvider` response handling for `generate_brief` or `generate_copy`.
@@ -1014,6 +1049,13 @@ Schema enforces structure without unsupported union combinators; `CopyPayloadV2`
 
 ## Scenario: Async workflow runs and deletion safety
 
+> **Legacy conflict / extension target:** Stale-running reset, unconditional failure settlement, immediate cancellation, and physical deletion expectations in this scenario describe legacy behavior. For extension model operations, persist dispatch intent, per-request accounting, and finite deadlines; uncertain dispatch stays unknown rather than becoming queued or a definite zero-cost failure. Production cancellation preserves late results without starting later stages, and deletion follows versioned trash and references/leases. Safe recovery of provably undispatched work remains possible. Free-node execution is preserved without a hidden-paid-retry exception (PRD Sections 3.6, 3.9, and 4.3; Technical Design Sections 4-5).
+
+For disaster recovery, a queued row in an old database snapshot does not prove that no dispatch happened later.
+Quarantine affected model executions, Outbox delivery, and quotas until independently surviving credible evidence
+reconciles dispatch and consumption; a provider lookup miss is insufficient. Never reset consumed quota from the old
+snapshot or convert uncertainty into a fresh paid request (Technical Design Section 7.8).
+
 ### 1. Scope / Trigger
 
 - Trigger: any change to workflow run kickoff/execution, active-run locking, workflow node deletion, or product deletion
@@ -1060,8 +1102,14 @@ Schema enforces structure without unsupported union combinators; `CopyPayloadV2`
 - Run responses and lightweight status responses expose `is_retryable`, `is_cancelable`, `queue_active_count`,
   `queue_running_count`, `queue_queued_count`, `queue_max_concurrent_tasks`, `queued_ahead_count`, and `queue_position`.
   Queue position for workflow runs is derived from queued node-run state, not Redis delivery metadata.
+> **Extension recovery boundary:** The queued-redelivery and stale-running rules below require dispatch-ledger evidence
+> in the extension. An ordinary restart retaining the latest database differs from restoring an older disaster snapshot;
+> neither permits paid work to resume based solely on a queued status.
+
 - API startup must call workflow run recovery for active runs with no node currently running, so a run committed before a
   Redis send or process restart is sent again.
+> **Legacy recovery rule below:** do not use worker restart or stale timestamps as evidence that a model request was never dispatched. Update the corresponding durable-delivery recovery tests with the new ledger-aware behavior.
+
 - Worker startup may reset stale `workflow_node_runs.status = 'running'` rows back to `queued` before re-enqueueing their
   parent run. Do not reset recent running nodes on API startup because another worker may still be executing them.
 - Duplicate kickoff for the same active node set must return the existing active workflow/run state or be caught by the
@@ -1069,7 +1117,8 @@ Schema enforces structure without unsupported union combinators; `CopyPayloadV2`
   provider calls for the same node.
 - Kickoff for a selected node set that is disjoint from every active run's queued/running node runs may create a separate
   `running` workflow run for the same workflow. A full-workflow kickoff overlaps every node and therefore still reuses an
-  existing active run when any node is active.
+  existing active run when any node is active. In the extension this refers to the free-node set only; formal batches
+  retain their separate submission and per-slot operation locks.
 - Duplicate Redis messages must be idempotent:
   - terminal workflow runs (`succeeded` / `failed` / `cancelled`) are no-ops;
   - runs that already have a non-stale `running` node run are no-ops;
